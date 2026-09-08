@@ -1,0 +1,10 @@
+{
+  "name": "小手卡 · 宝宝英语闪卡",
+  "short_name": "小手卡",
+  "start_url": "./index.html?v=300",
+  "display": "standalone",
+  "background_color": "#F5F8FD",
+  "theme_color": "#3D7BE8",
+  "orientation": "portrait",
+  "icons": [ { "src": "./icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" } ]
+}

@@ -21,7 +21,7 @@
 /* 离线文件自动更新：每次打开联网比对 Supabase 上的最新版，发现新版本在顶部显示更新条，点击即用最新版重载（数据存 Supabase 不丢） */
 (function(){
   try{
-    var FLASH_VER='20260908.1';
+    var FLASH_VER='20260909.1';
     var UPD='https://bununhxkphvlvgvhanpk.supabase.co/storage/v1/object/public/flash-app/app/index.html';
     function mount(ver,html){
       if(document.getElementById('__upd_bar__'))return;
@@ -32,6 +32,9 @@
       (document.body||document.documentElement).appendChild(b);
     }
     function check(){
+      try{var _l=parseInt(localStorage.getItem('__upd_chk__')||'0',10);
+        if(_l&&Date.now()-_l<6*3600*1000)return;      // v301：6 小时内不重复拉 365KB 比对
+        localStorage.setItem('__upd_chk__',String(Date.now()));}catch(e){}
       fetch(UPD+'?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
         var m=t&&t.match(/var FLASH_VER='([^']+)'/);if(!m)return;var rv=m[1];
         if(rv&&rv!==FLASH_VER)mount(rv,t);
@@ -380,10 +383,113 @@ window.addEventListener('unhandledrejection',function(e){});
   }catch(e){}
 })();
 </script><script>const EMBEDDED={"all_day_long":"","am":"","are":"","baby_bear":"","back":"","ball":"","bat":"","bed":"","beep":"","bike":"","black":"","boat":"","boy":"","broccoli":"","bump":"","cake":"","can_you_find_a_circle":"","cap":"","car":"","carrot":"","cheek":"","chest":"","clap_your_hands":"","climb":"","clock":"","close_your_eyes":"","color":"","comb":"","come_and_play":"","cry":"","cupcake":"","cup":"","delicious":"","diamond":"","doctor":"","do_like_cupcakes":"","door":"","do_you_like_broccoli":"","do_you_like_yogurt":"","drive":"","dtum":"","early_in_the_morning":"","elbows":"","every_day":"","favorite":"","flute":"","four_leaf_clover":"","friends":"","get_dressed":"","girl":"","go_to_school":"","grumpy":"","happy":"","hard":"","heart":"","here":"","here_s":"","honey":"","hose":"","ice_cream":"","i_like_driving":"","i_like_flying":"","i_like_red":"","i_like_riding":"","i_like_rowing":"","i_m_so_happy_to_see_you":"","it_s":"","jack_o_lantern":"","jelly":"","juice":"","jump_rope":"","ladder":"","laugh":"","leader":"","let_s_make_rectangle":"","let_s":"","line_up":"","monkey":"","monster":"","mum_s":"","mushroom":"","my_happy_song":"","neck":"","neither":"","ouch":"","oval":"","pants":"","pass_the_beanbag":"","peanut_butter":"","pirate":"","pizza":"","pout":"","pudding":"","pumpkin":"","put_on_our_t_shirt":"","rectangle":"","red_is_the_color_of_apple":"","roll_over":"","round_and_round":"","salad":"","scoop":"","shape":"","shout":"","shrimp":"","sing_along":"","sing":"","smile":"","smoothie":"","snake":"","soccer_player":"","socks":"","soup":"","spicy":"","spider":"","spray_the_water":"","square":"","squirrel":"","star":"","stinky":"","stomach":"","stomp_your_feet":"","stop":"","superhero":"","tell":"","tent":"","there":"","tofu":"","tomato":"","toothache":"","train":"","triangle":"","trick_or_treat":"","truck":"","tuba":"","warm":"","what_do_you_want_for_christmas":"","what":"","wheel":"","white":"","who":"","woman":"","wow":"","wrists":"","yawn":"","yes_i_do":"","yogurt":"","you":"","yucky":"","zip_up_our_jacket":"","banana":"","hello":"","can_you_make_a_happy_face":""};</script>
+<script>
+/* ===== v301 诊断与错误日志系统 =====
+   ① 页面出错不再只闪一条红条就没了 → 弹出可读、可复制、可发给开发者的详情框
+   ② 所有异常自动留档（只存本机），设置页可一键复制/查看/清空
+   ③ 第三方脚本(supabase/tesseract/beacon)与资源加载失败只记录、不打扰 */
+(function(){
+  var MAX=40, LSK='app_err_log_v1';
+  function p2(n){return String(n).padStart(2,'0');}
+  function now(){var d=new Date();return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+' '+p2(d.getHours())+':'+p2(d.getMinutes())+':'+p2(d.getSeconds());}
+  function ver(){try{if(window.APP_VER)return window.APP_VER;var b=document.getElementById('verBadge');if(b&&b.textContent)return b.textContent.trim();}catch(e){}return '?';}
+  function curPage(){try{var a=document.querySelector('.page.active');if(a&&a.id)return a.id;}catch(e){}return '';}
+  function read(){try{return JSON.parse(localStorage.getItem(LSK)||'[]');}catch(e){return [];}}
+  function write(a){try{localStorage.setItem(LSK,JSON.stringify(a.slice(-MAX)));}catch(e){}}
+  function is3rd(u){return /beacon\.cdn|jsdelivr|unpkg|tesseract|supabase|sentry|gtag/i.test(u||'');}
+  function escH(x){return String(x||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function copyText(t){
+    try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;}}catch(e){}
+    try{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');ta.remove();}catch(e){}
+  }
+  var lastShown={};
+  function report(msg,src,stack,quiet){
+    try{
+      msg=String(msg||'未知错误');
+      if(msg==='Script error.'||msg==='Script error')return;
+      var rec={t:now(),v:ver(),p:curPage(),m:msg,s:src||'',st:stack||''};
+      var a=read();
+      var last=a.length?a[a.length-1]:null;
+      var dup=last&&last.m===msg&&(Date.now()-(last._ts||0))<10000;
+      if(!dup){rec._ts=Date.now();a.push(rec);write(a);}
+      var silent=quiet||is3rd(src);
+      if(!silent&&!(lastShown[msg]&&Date.now()-lastShown[msg]<60000)){lastShown[msg]=Date.now();box(rec);}
+    }catch(e){}
+  }
+  function box(rec){
+    try{
+      if(document.getElementById('__errbox__'))return;
+      var m=document.createElement('div');m.id='__errbox__';
+      m.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(18,24,38,.55);display:flex;align-items:center;justify-content:center;padding:22px';
+      var detail='时间：'+rec.t+'\n版本：'+rec.v+'\n页面：'+(rec.p||'-')+'\n错误：'+rec.m+(rec.s?'\n来源：'+rec.s:'')+(rec.st?'\n堆栈：'+rec.st.slice(0,500):'');
+      m.innerHTML='<div style="background:#fff;border-radius:18px;padding:18px;max-width:340px;width:100%;box-shadow:0 18px 50px rgba(0,0,0,.28);font-family:-apple-system,sans-serif">'+
+        '<div style="font-size:16px;font-weight:800;color:#E53935;margin-bottom:8px">⚠️ 出了点小问题</div>'+
+        '<div style="font-size:13px;color:#3A465C;line-height:1.6;word-break:break-all;max-height:150px;overflow:auto">'+escH(rec.m)+'</div>'+
+        '<div style="font-size:11px;color:#8A94A6;margin-top:8px">'+escH(rec.t+' · '+rec.v+' · '+(rec.p||'—'))+'</div>'+
+        '<div style="display:flex;gap:8px;margin-top:14px">'+
+          '<button id="__errcopy__" style="flex:1;padding:11px;border:none;border-radius:12px;background:#3D7BE8;color:#fff;font-size:13px;font-weight:700">📋 复制详情</button>'+
+          '<button id="__errclose__" style="flex:1;padding:11px;border:none;border-radius:12px;background:#EEF2F8;color:#3A465C;font-size:13px;font-weight:700">知道了</button>'+
+        '</div>'+
+        '<div style="font-size:11px;color:#8A94A6;margin-top:10px;text-align:center">复制后发给开发者即可定位 · 学习数据不受影响</div>'+
+      '</div>';
+      document.body.appendChild(m);
+      function close(){if(m.parentNode)m.parentNode.removeChild(m);}
+      m.addEventListener('click',function(e){if(e.target===m)close();});
+      var cb=document.getElementById('__errclose__'),cp=document.getElementById('__errcopy__');
+      if(cb)cb.onclick=close;
+      if(cp)cp.onclick=function(){copyText(detail);cp.textContent='✅ 已复制';setTimeout(function(){cp.textContent='📋 复制详情';},1600);};
+    }catch(e){}
+  }
+  window.addEventListener('error',function(e){
+    try{
+      var t=e.target;
+      if(t&&t!==window&&t.tagName&&/^(IMG|SCRIPT|LINK|AUDIO|SOURCE|VIDEO)$/.test(t.tagName))return; // 资源加载失败：功能已有降级，不打扰
+      var msg=(e.message||(e.error&&e.error.message))||'未知错误';
+      report(msg,(e.filename||'')+':'+(e.lineno||''),(e.error&&e.error.stack)||'');
+    }catch(ie){}
+  },true);
+  window.addEventListener('unhandledrejection',function(e){
+    try{var r=e.reason;report((r&&(r.message||r))||'Promise 未处理拒绝','promise',(r&&r.stack)||'');}catch(ie){}
+  });
+  window.APP_DIAG={report:report,read:read,clear:function(){try{localStorage.removeItem(LSK);}catch(e){}},copyText:copyText,ver:ver,now:now};
+  /* ---- 设置页用：错误日志 / 一键自检 ---- */
+  window.copyErrLog=function(){
+    var a=read();
+    var body=a.length?a.map(function(r){return '['+r.t+'] '+r.v+' '+(r.p||'')+' | '+r.m+(r.s?' @'+r.s:'');}).join('\n'):'（暂无错误记录）';
+    copyText('闪卡App错误日志 '+now()+' 版本'+ver()+'\n'+body);
+    try{showToast(a.length?('✅ 已复制 '+a.length+' 条日志'):'✅ 已复制（暂无错误记录）');}catch(e){}
+  };
+  window.viewErrLog=function(){
+    var a=read(),el=document.getElementById('diagOut');if(!el)return;
+    el.style.display='block';
+    el.textContent=a.length?a.slice().reverse().map(function(r){return '['+r.t+'] '+r.m+(r.s?' @'+r.s:'');}).join('\n'):'暂无错误记录 ✅';
+  };
+  window.clearErrLog=function(){
+    APP_DIAG.clear();var el=document.getElementById('diagOut');
+    if(el){el.style.display='block';el.textContent='已清空 ✅';}
+    try{showToast('错误日志已清空');}catch(e){}
+  };
+  window.diagSelfCheck=function(){
+    var el=document.getElementById('diagOut');if(!el)return;
+    el.style.display='block';el.textContent='检查中…';
+    var out=['版本 '+ver()+' · '+now()],n=0;
+    function done(){el.textContent=out.join('\n');}
+    function step(name,v){
+      return Promise.resolve(v).then(function(ok){out.push((ok?'✅ ':'❌ ')+name);},function(e){out.push('❌ '+name+'（'+((e&&e.message)||e)+'）');})
+        .then(function(){if(++n>=4)done();});
+    }
+    step('本地存储',(function(){try{localStorage.setItem('__t','1');localStorage.removeItem('__t');return true;}catch(e){return false;}})());
+    step('图片数据库(IndexedDB)',new Promise(function(res,rej){try{var r=indexedDB.open('__diag__',1);r.onsuccess=function(){try{r.result.close();}catch(e){}res(true);};r.onerror=function(){rej(new Error('打不开'));};setTimeout(function(){rej(new Error('超时'));},4000);}catch(e){rej(e);}}));
+    step('发音能力',(function(){try{var a=new Audio();return typeof a.play==='function';}catch(e){return false;}})());
+    step('联网(线上版本)',fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return !!r.ok;}));
+    try{out.push('本机卡片：'+Object.keys((typeof store!=='undefined'&&store.cards)||{}).length+' 张');}catch(e){}
+  };
+})();
+</script>
 </head>
 <body>
     <div id="errInfo" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#FF4444;color:#fff;padding:10px;font-size:13px;font-family:sans-serif;word-break:break-all;"></div>
-    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="location.reload(true)">🔄 发现新版本，点此刷新</div>
+    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{var u=location.href.split('#')[0].split('?')[0];location.replace(u+'?_r='+Date.now());}catch(e){location.reload(true);}">🔄 发现新版本，点此刷新</div>
     <!-- 加载遮罩：避免闪白屏 -->
     <header>
         <h1>🔤 宝宝英语闪卡 <span id="verBadge" style="font-size:10px;font-weight:600;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:10px;vertical-align:middle;">v277</span></h1>
@@ -625,6 +731,19 @@ window.addEventListener('unhandledrejection',function(e){});
                     📦 导入音频包<input type="file" id="audioPackInput" accept=".zip,application/zip" style="display:none" onchange="importAudioPack(this.files[0]);this.value=''">
                 </label>
             </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+            <h2>🩺 诊断与错误日志</h2>
+            <p class="sub">App 弹出「⚠️ 出了点小问题」或点了没反应时，先点<b>一键自检</b>，再点<b>复制错误日志</b>发给我，我能直接定位。日志只存在你本机。</p>
+            <div class="row-actions">
+                <button class="btn btn-blue" style="flex:1" onclick="diagSelfCheck()">🔍 一键自检</button>
+                <button class="btn btn-ghost" style="flex:1" onclick="copyErrLog()">📋 复制错误日志</button>
+            </div>
+            <div class="row-actions" style="margin-top:8px">
+                <button class="btn btn-ghost" style="flex:1" onclick="viewErrLog()">📄 查看日志</button>
+                <button class="btn btn-ghost" style="flex:1" onclick="clearErrLog()">🗑 清空日志</button>
+            </div>
+            <div id="diagOut" style="margin-top:10px;padding:10px 12px;background:#F5F7FB;border-radius:12px;font-size:12px;color:#5A6473;white-space:pre-wrap;display:none"></div>
         </div>
     </div>
 
@@ -1324,6 +1443,16 @@ const UID='cacd1a4b-ed34-4b60-b57e-7cf82f596aea';
 
 /* ===== Tab切换 ===== */
 function switchTab(p){
+  // v301：切页前先收起各类浮层，避免"切过去了却还被测验/报告/弹窗盖住，看起来像点不动"
+  try{
+    const _hide=(id,fn)=>{const el=document.getElementById(id);if(el&&el.classList.contains('show')){try{fn();}catch(e){}}};
+    _hide('quiz',closeQuiz);
+    _hide('quizMean',()=>document.getElementById('quizMean').classList.remove('show'));
+    _hide('quizBlank',()=>document.getElementById('quizBlank').classList.remove('show'));
+    _hide('qrMask',closeQr);_hide('reportLayer',closeReport);_hide('pickMask',closePicker);
+    _hide('numMask',closeNumView);_hide('editMask',closeEdit);_hide('ocrMask',closeOcrSettings);
+    const _cm=document.getElementById('cardModal');if(_cm)_cm.remove();
+  }catch(e){}
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   document.querySelectorAll('.tabbar .tab').forEach(el=>el.classList.remove('active'));
@@ -1998,9 +2127,21 @@ let ocrUnlocked=false;   // 是否已通过口令解锁（仅手动云端模式�
 function ensureUnlock(){
   if(ocrUnlocked)return true;
   try{if(localStorage.getItem('ocr_unlocked_ok')==='1'){ocrUnlocked=true;return true;}}catch{}
-  const p=prompt('请输入识别口令（首次使用，防止他人盗用OCR额度）','');
-  if(p===getPin()){ocrUnlocked=true;try{localStorage.setItem('ocr_unlocked_ok','1');}catch{}return true;}
-  if(p!==null){alert('口令不对，请重新输入');}
+  const pin=getPin();
+  // v301：没设置过口令（默认空）→ 直接放行，不再弹框要口令、更不会再报"口令不对"
+  if(!pin){ocrUnlocked=true;try{localStorage.setItem('ocr_unlocked_ok','1');}catch{}return true;}
+  let tries=0;
+  while(tries<3){
+    const tip=(tries===0)
+      ? '请输入识别口令（在「⚙️ 设置识别」里可查看/重设）'
+      : '口令不对，还可试 '+(3-tries)+' 次（忘记口令请到「⚙️ 设置识别」重设）';
+    const p=window.prompt(tip,'');
+    if(p===null)return false;                       // 用户取消
+    if(p===pin){ocrUnlocked=true;try{localStorage.setItem('ocr_unlocked_ok','1');}catch{}return true;}
+    tries++;
+  }
+  // v301：不再用 alert 弹"口令不对"，改为不打断的提示条
+  try{showToast('⚠️ 口令不对，本次改用本地识别；忘记口令可到「⚙️ 设置识别」重设');}catch(e){}
   return false;
 }
 /* 图片base64 → 百度可用的data（去掉前缀） */
@@ -5418,20 +5559,8 @@ function importBackup(file){
 
 /* ===== 启动 ===== */
 /* 全局错误提示：页面出错直接显示红条，便于定位问题 */
-try{
-  window.addEventListener('error',e=>{
-    try{
-      if(document.getElementById('errBar'))return;
-      const d=document.createElement('div');d.id='errBar';
-      d.style.cssText='position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:10px;right:10px;z-index:500;background:#E53935;color:#fff;font-size:12px;padding:10px 14px;border-radius:12px;word-break:break-all;box-shadow:0 8px 24px rgba(229,57,53,.4);';
-      const _msg=(e.message||(e.error&&e.error.message))||'未知错误';
-      if(_msg==='Script error.')return; // 跨域第三方脚本通用错误，屏蔽
-      d.textContent='⚠️ 页面出错：'+_msg;
-      document.body.appendChild(d);
-      setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},8000);
-    }catch(ie){}
-  });
-}catch(e){}
+/* v301：旧的一闪而过红条已废弃，改由 head 的 APP_DIAG 统一处理（弹可复制详情框 + 写错误日志）。
+   业务代码里想主动上报，用 APP_DIAG.log('说明', '来源') 即可。 */
 /* boot：cards 从 IndexedDB 就绪后再做数据迁移 + 首次渲染。
    IndexedDB 不可用/无数据时回退到 localStorage 旧格式（自动兼容迁移）。 */
 function importPackAudio(){
@@ -5544,7 +5673,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v300';
+const APP_VER='v301';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
@@ -5906,9 +6035,15 @@ function showUpdateBanner(){ var b=document.getElementById('updateBanner'); if(b
 // 版本检测：当前运行版本与线上 version.txt 不一致时提示刷新，根治静态页缓存导致的"点没反应"
 (function(){
   try{
-    fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
+    fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
+      if(!r.ok)return '';            // 没有 version.txt（404）→ 不提示，避免"每次打开都说有新版本"
+      return r.text();
+    }).then(function(t){
       var nv=(t||'').trim();
-      if(nv && nv!==APP_VER){ showUpdateBanner(); }
+      if(!nv)return;                 // 空内容 → 不提示
+      if(!/^v?[\d.]+$/.test(nv))return;  // 不是版本号（比如返回了 404 页面）→ 不提示
+      if(nv===APP_VER)return;        // 已是最新
+      showUpdateBanner();
     }).catch(function(){});
   }catch(e){}
 })();

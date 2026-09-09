@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788955939000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1788965219000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1538,6 +1538,16 @@ function sbAudioUrl(en, src){
 function ghAudioUrl(en, src){
   return 'audio/' + b64en(en) + '_' + (src==='baidu'?'baidu':'youdao') + '.mp3';
 }
+/* v309：同源音频库「已补齐词」清单（助手补完音频后由脚本自动生成，勿手改）。
+   命中清单 = 该词云端预生成库里没有、但同源库里有 → 直接走同源库，
+   不再先去云端库撞一次 400（否则每点一次发音都白等一次失败往返，表现为「停顿一两秒才出声」）。 */
+const GH_AUDIO_WORDS=['aunt','bumble bee','close eyes','deep breath','eighty','fifty','forty','hundred','mermaid'];
+const GH_AUDIO_KEYS=new Set(GH_AUDIO_WORDS.map(b64en));
+function ghHas(en){ try{ return GH_AUDIO_KEYS.has(b64en((en||'').trim())); }catch(e){ return false; } }
+/* v309：本次会话内已确认「云端库没有」的词，下次直接跳过云端 → 第二次点击即秒播 */
+const _sbMiss=new Set();
+function sbMissed(en){ try{ return _sbMiss.has(b64en((en||'').trim())); }catch(e){ return false; } }
+function sbMarkMiss(en){ try{ _sbMiss.add(b64en((en||'').trim())); }catch(e){} }
 function audioKeyForEn(en){
   const k=(en||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
   return 'a:'+k;
@@ -1766,6 +1776,14 @@ function playYoudao(en,slow){
   const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
   // v297：长句直接走百度整句真人音，避免有道对句子返500/空响应导致 iOS 音频元素卡住
   const words=(en||'').trim().split(/\s+/).filter(Boolean);
+  // v309：同源库已补齐（或上次已确认云端没有）→ 直接走同源库，跳过云端，避免白等一次 400 往返才出声
+  if(ghHas(en)||sbMissed(en)){
+    playUrlChain(words.length>=5
+      ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), sbAudioUrl(en,'baidu'), directBaiduUrl(en)]
+      : [ghAudioUrl(en,'youdao'), sbAudioUrl(en,'youdao'), directYoudaoUrl(en), ghAudioUrl(en,'baidu'), directBaiduUrl(en)],
+      {en:en,slow:slow,noTts:earn});
+    return;
+  }
   if(words.length>=5){ playBaidu(en,slow,earn); return; }
   // 有道优先：标准美音，单词/短语更自然好听；
   // 有道仅对多词句子返500，此时立即回退百度整句真人音（playBaidu 内部再加原生TTS 兜底），保证绝不静音。
@@ -1782,8 +1800,8 @@ function playYoudao(en,slow){
       playUrlChain(chain,{en:en,slow:slow,noTts:earn});
     } };
     curAudio.onplaying=()=>{played=true;};
-    curAudio.onerror=()=>{ goBaidu(); };
-    const p=curAudio.play(); if(p&&p.catch)p.catch(()=>{ goBaidu(); });
+    curAudio.onerror=()=>{ sbMarkMiss(en); goBaidu(); };
+    const p=curAudio.play(); if(p&&p.catch)p.catch(()=>{ sbMarkMiss(en); goBaidu(); });
     setTimeout(goBaidu,2500); // 2.5s 安全网：有道未出声→百度兜底
     return;
   }
@@ -1811,6 +1829,7 @@ function playUrlChain(urls,opt){
     const url=list[i++];
     try{ if(curAudio) curAudio.pause(); }catch(e){}
     const a=new Audio(); curAudio=a;
+    a.preload='auto'; // v309：命中即尽快缓冲，缩短从点击到出声的等待
     a.src=url; a.playbackRate=rate;
     a.onplaying=()=>{ played=true; stop(); };
     a.onerror=()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,80); };
@@ -1824,7 +1843,11 @@ function playBaidu(en,slow,noTts){
   // v297：百度整句给更多加载时间；用全新 Audio 元素播放，避免 iOS 上旧失败音频污染导致静音
   // v308：云端库缺失 → 直连百度，仍失败才 TTS
   const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
-  playUrlChain([sbAudioUrl((en||'').trim(),'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en)],{en:en,slow:slow,noTts:noTts||earn});
+  // v309：同源库已补齐的词优先同源，跳过云端那次注定 400 的往返
+  const list = ghHas(en)
+    ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), sbAudioUrl((en||'').trim(),'baidu'), directBaiduUrl(en)]
+    : [sbAudioUrl((en||'').trim(),'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en)];
+  playUrlChain(list,{en:en,slow:slow,noTts:noTts||earn});
 }
 /* 长句兜底：无离线音频且>=5词时，按<=4词切片依次播有道，避免撞500静音 */
 async function playChunks(words,slow){
@@ -3438,6 +3461,19 @@ function openMasterList(){
 const SB_MEDIA_URL='https://bununhxkphvlvgvhanpk.supabase.co/storage/v1/object/public/flash-app/audio/';
 const MERGE_RATE=22050; // 语音 22.05k 足够清晰，WAV 体积减半
 async function fetchWordAudioBuf(en){
+  // v309：同源库已补齐的词优先同源（云端注定 400，先试同源可省一次失败往返）
+  if(typeof ghHas==='function'&&ghHas(en)){
+    for(const src of ['youdao','baidu']){
+      try{
+        const r=await fetch(ghAudioUrl(en,src));
+        if(!r.ok)continue;
+        const ct=r.headers.get('content-type')||'';
+        if(!/audio|mpeg|mp3|octet/i.test(ct))continue;
+        const ab=await r.arrayBuffer();
+        if(ab&&ab.byteLength>400)return ab;
+      }catch(e){}
+    }
+  }
   for(const src of ['youdao','baidu']){
     const url=SB_MEDIA_URL+b64en(en)+'_'+src+'.mp3';
     try{
@@ -5814,7 +5850,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v308';
+const APP_VER='v309';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

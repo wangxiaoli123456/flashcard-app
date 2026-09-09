@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788914136000';
+    var REL='1788914400000';
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3595,6 +3595,7 @@ function startPool(pool){
       shuffle(histAll().filter(id=>!ids.includes(id))).forEach(id=>{ if(ids.length<30&&!ids.includes(id)) ids.push(id); });
     }
     if(!ids.length){showToast('还没有可听音辨词的卡，先学几天');return;}
+    ids=padTo(ids.slice(0,30),30); // v303：固定 30 题（原先补不满就少出；今日词超 30 也不多出）
     listenGood=0;listenBad=0;listenWrongIds=[];
     fsQueue=ids.map(id=>({id,pool:'listen'}));
   }
@@ -3944,16 +3945,29 @@ let quizQueue=[],quizIdx=0,quizGood=0,quizBad=0,quizWrongCnt=0,quizSlow=false,qu
 let quizWrongIds=[];   // 本局答错的卡 id 列表，供结算弹窗展示
 const QUIZ_TOTAL=30;
 function hasImg(c){return !!(c&&(c.imgUrl||c.imgKey));}
-function buildQuizPool(){
+// v303：把题序补足到固定长度；合格卡不足时循环复用已有题（每轮重新打散，避免相邻/周期性重复）
+function padTo(arr,n){
+  if(!arr||!arr.length||arr.length>=n)return arr||[];
+  let out=arr.slice(); let guard=0;
+  while(out.length<n&&guard++<100){
+    const rest=n-out.length;
+    out=out.concat(shuffle(arr.slice()).slice(0,rest));
+  }
+  return out;
+}
+// extraFn：可选附加过滤（如"听音选意思"要求有中文释义），过滤后再统一补足到 30
+function buildQuizPool(extraFn){
+  const okX=(c)=>!extraFn||extraFn(c);
   const set=new Set();
   // 今日挑的词：全部纳入听音（不管是否已三遍判会/升老词，都要出现），优先占位保证不被挤出
-  (store.today.ids||[]).forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c))set.add(id);});
+  (store.today.ids||[]).forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&okX(c))set.add(id);});
   // 补足：② 错题池到期的 → ③ 今日到期老词 → ④ 全部已学老词 → ⑤ 全卡（均不重复、不超 QUIZ_TOTAL）
   const cands=[];
-  wrongDueOnly().forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&!set.has(id))cands.push(id);});
-  if(set.size+cands.length<QUIZ_TOTAL)histDue().forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&!set.has(id)&&!cands.includes(id))cands.push(id);});
-  if(set.size+cands.length<QUIZ_TOTAL)histAll().forEach(id=>{if(!set.has(id)&&!cands.includes(id))cands.push(id);});
-  if(set.size+cands.length<QUIZ_TOTAL)Object.keys(store.cards).forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&!set.has(id)&&!cands.includes(id))cands.push(id);});
+  wrongDueOnly().forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&okX(c)&&!set.has(id))cands.push(id);});
+  if(set.size+cands.length<QUIZ_TOTAL)histDue().forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&okX(c)&&!set.has(id)&&!cands.includes(id))cands.push(id);});
+  // v303：本层原先漏掉 hasImg/en/已学 过滤，会把无图卡混进"四选一图片答题"导致题目没图
+  if(set.size+cands.length<QUIZ_TOTAL)histAll().forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&okX(c)&&!set.has(id)&&!cands.includes(id))cands.push(id);});
+  if(set.size+cands.length<QUIZ_TOTAL)Object.keys(store.cards).forEach(id=>{const c=store.cards[id];if(c&&c.en&&hasImg(c)&&c.state!=='raw'&&okX(c)&&!set.has(id)&&!cands.includes(id))cands.push(id);});
   cands.forEach(id=>{ if(set.size<QUIZ_TOTAL)set.add(id); });
   // 分层输出：第一层=当日新词池（store.today.ids，跨天保留），内部按挑入日期倒序——
   //   今天挑的 > 昨天挑的 > 前天…；同日内部随机。保证最近挑的词必进前 30。
@@ -3966,7 +3980,8 @@ function buildQuizPool(){
     return Math.random()-0.5;                  // 同日随机
   });
   const restArr=shuffle([...set].filter(id=>!tIds.includes(id)));
-  return [...sortedToday, ...restArr].slice(0,QUIZ_TOTAL);
+  // v303：固定 30 题（原先只是"最多 30"，卡池不足就少出，进度显示 x/12 之类）
+  return padTo([...sortedToday, ...restArr].slice(0,QUIZ_TOTAL),QUIZ_TOTAL);
 }
 const quizOptCache={};   // 同题干扰项缓存：保证预加载与实际渲染的干扰项一致（否则预加载白做）
 function quizPickOptions(targetId){
@@ -4164,7 +4179,7 @@ function meanPickOptions(targetId){
   return res;
 }
 function startPickMean(){
-  const ids=buildQuizPool().filter(id=>{const c=store.cards[id];return c&&c.cn&&c.cn.trim();}); // 复用抽词池，筛掉无中文释义的
+  const ids=buildQuizPool(c=>c.cn&&c.cn.trim()); // v303：复用抽词池，筛掉无中文释义的，并在池内统一补足到固定 30 题
   if(!ids.length){showToast('还没有可选意思的卡，先学几天');return;}
   for(const k in meanOptCache)delete meanOptCache[k];
   quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='mean';quizWrongIds=[];
@@ -4277,7 +4292,7 @@ function sentenceBlankIds(){
     if(!new RegExp('\\b'+elBlankEscape(core)+'\\b','i').test(c.ctx))continue; // ctx 必须含该词才可挖空
     (c.ctx.trim().toLowerCase().startsWith('this is')?thisIs:ok).push(id); // 降权 this is 模板句，优先多样句
   }
-  return shuffle(ok).concat(shuffle(thisIs)).slice(0,BLANK_TOTAL);
+  return padTo(shuffle(ok).concat(shuffle(thisIs)).slice(0,BLANK_TOTAL),BLANK_TOTAL); // v303：固定 20 题
 }
 function blankPickOptions(targetId){
   const tc=store.cards[targetId], pos=posOf(tc), th=tc.theme;
@@ -5682,7 +5697,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v302';
+const APP_VER='v303';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

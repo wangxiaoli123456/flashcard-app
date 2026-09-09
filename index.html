@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788917170000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1788953840000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -2338,13 +2338,28 @@ async function mymemoryTranslate(en){
     if(!r.ok)return null;
     const j=await r.json();
     const t=j&&j.responseData&&j.responseData.translatedText;
-    if(t&&t!=='NO QUERY SPECIFIED'&&t.toLowerCase()!=='please slow down'&&!j.responseStatus)return {cn:String(t).trim()};
-    if(j.responseStatus===429){showToast('⚠️ 翻译服务繁忙，请稍后重试');}
+    const st=j?j.responseStatus:undefined;
+    // v306 根因修复：原判定含 `!j.responseStatus`，而成功时 responseStatus=200 → !200=false →
+    // 翻译结果被当成失败丢弃。这就是「有些卡翻译不出来」的真正原因（词库未命中的词 100% 无中文）。
+    if(Number(st)===429){ try{showToast('⚠️ 翻译服务繁忙，请稍后重试');}catch(e){} return null; }
+    const txt=String(t==null?'':t).trim();
+    if(/MYMEMORY WARNING|ALL AVAILABLE FREE|NO QUERY SPECIFIED/i.test(txt)){
+      try{showToast('⚠️ 今日免费翻译额度已用完，建议在设置里配置百度翻译');}catch(e){}
+      return null;
+    }
+    if(/please slow down/i.test(txt))return null;
+    // 翻译结果与原文相同 = 没真翻译出来，视为失败（交给下一级兜底）
+    if(txt&&txt.toLowerCase()===String(en||'').trim().toLowerCase())return null;
+    const okStatus=(st===undefined||st===null||st===''||Number(st)===200||st==='OK');
+    if(txt&&okStatus)return {cn:txt};
     return null;
   }catch(e){return null;}
 }
 /* 中文翻译汇总：词库 → 百度翻译(8s超时) → MyMemory → 有道 */
+let _lastTransAt=0;
 async function translateZh(en){
+  // v306：连续请求节流（≥350ms），避免 MyMemory 返回 "please slow down"，批量上传时才不会部分词失败
+  try{ const gap=Date.now()-_lastTransAt; if(gap>=0&&gap<350) await new Promise(r=>setTimeout(r,350-gap)); _lastTransAt=Date.now(); }catch(e){}
   let tr=await baiduTranslate(en);
   if(!tr)tr=await mymemoryTranslate(en);
   if(!tr)tr=await youdaoTranslate(en);
@@ -5737,7 +5752,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v305';
+const APP_VER='v306';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

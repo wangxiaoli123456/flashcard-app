@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788881209910';
+    var REL='1788913365000';
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1526,6 +1526,7 @@ let _waPreDecodeDone=false;
    'wa'（无灵动岛）：内置真人音走 Web Audio（AudioBufferSourceNode），不弹灵动岛；但部分设备/微信 webview 下 Web Audio 输出端不激活→静音（即本次"素材库没声"的根因）。
    默认稳定模式，保证"打开就能响"；想要无灵动岛可在设置一键切回。 */
 let AUDIO_ENGINE=(function(){try{return localStorage.getItem('audio_engine')||'html';}catch(e){return 'html';}})();
+let _audioGen=0; // 发音代际守卫：每次发起新发音自增，陈旧异步回调(gen 不匹配)直接作废，根治「前后音重复」
 function setAudioEngine(m){
   AUDIO_ENGINE=m; try{localStorage.setItem('audio_engine',m);}catch(e){}
   showToast(m==='wa'?'已切「无灵动岛」模式：Web Audio（部分设备可能静音）':'已切「稳定」模式：HTMLAudio（必有声，可能弹灵动岛）');
@@ -1621,7 +1622,9 @@ function playEmbeddedWA(key,emb,rate){
   ensureAudioCtx();
   if(!audioCtx)return false;
   if(_waFailed.has(key)){ return false; } // 该卡 Web Audio 解码失败→交给 playWord 回退 HTMLAudio 出声（个别卡弹灵动岛但绝静音）
+  const gen=_audioGen; // 代际守卫，防「前后音重复」
   const fire=()=>{
+    if(gen!==_audioGen)return false; // 本次发音已被新发音取代→作废
     const b=_waBufCache.get(key); if(!b)return false;
     stopWAAudio();
     const play=()=>{
@@ -1682,6 +1685,7 @@ async function preDecodeEar(ids){ // 进入磨耳朵前预解码所需内嵌音�
 }
 function playWord(id){
   unlockAudio(); // 每次发音前主动 resume AudioContext（iOS 停播后易 suspend，手势内 resume 才稳）
+  _audioGen++; // 新发音：作废之前所有挂起的异步兜底（防前后音重复）
   const c=store.cards[id];if(!c)return;
   const emb=audioForEn(c.en);
   // 无灵动岛模式：内置真人音优先 Web Audio（不弹灵动岛），失败再回退 HTMLAudio
@@ -1698,8 +1702,10 @@ function playWord(id){
 function tts(text,slow){
   if(!window.speechSynthesis)return;
   const t=String(text||'').trim(); if(!t)return;
+  const gen=_audioGen; // 记录本次发音代际，陈旧回调（上一题/上一张卡）一律作废
   try{ speechSynthesis.cancel(); }catch(e){}
   const speak=()=>{
+    if(gen!==_audioGen)return; // 防「前后音重复」：本次发音已被新发音取代
     try{
       const u=new SpeechSynthesisUtterance(t);
       u.lang='en-US'; u.rate=slow?0.55:0.8; u.pitch=1.05;
@@ -1720,6 +1726,7 @@ function tts(text,slow){
    v167 自包含内联(原149张)保留。dictionaryapi.dev 已弃用。*/
 function youdaoUrl(en){const w=(en||'').trim();return w?'https://dict.youdao.com/dictvoice?audio='+encodeURIComponent(w)+'&type=2':'';}
 function playYoudao(en,slow){
+  const gen=_audioGen; // 代际守卫，防「前后音重复」
   const emb=audioForEn(en);
   if(emb){curAudio=playSrc(emb,slow?0.8:1);return;}
   // ear 模式下任何失败都不调浏览器 TTS 兜底：speechSynthesis 会污染 iOS 音频会话，导致后续 HTMLAudio 全部静音
@@ -1734,7 +1741,7 @@ function playYoudao(en,slow){
   if(url){
     curAudio=playSrc(url,slow?0.8:1);
     let played=false;
-    const goBaidu=()=>{ if(!played){played=true;playBaidu(en,slow,earn);} };
+    const goBaidu=()=>{ if(gen===_audioGen && !played){played=true;playBaidu(en,slow,earn);} };
     curAudio.onplaying=()=>{played=true;};
     curAudio.onerror=()=>{ goBaidu(); };
     const p=curAudio.play(); if(p&&p.catch)p.catch(()=>{ goBaidu(); });
@@ -1748,6 +1755,7 @@ function playBaidu(en,slow,noTts){
   // v297：百度整句给更多加载时间；用全新 Audio 元素播放，避免 iOS 上旧失败音频污染导致静音
   const rate=slow?0.85:1;
   const url=sbAudioUrl((en||'').trim(),'baidu');
+  const gen=_audioGen; // 代际守卫，防「前后音重复」
   try{ if(curAudio) curAudio.pause(); }catch(e){}
   const a=new Audio(); curAudio=a;
   a.src=url; a.playbackRate=rate;
@@ -1756,9 +1764,9 @@ function playBaidu(en,slow,noTts){
   const waitMs=Math.max(3000, words*500+1500);
   a.onplaying=()=>{played=true;};
   // ear 模式下禁用 TTS 兜底：speechSynthesis 会污染 iOS 音频会话，导致后续 HTMLAudio 全部静音
-  a.onerror=()=>{ if(!played && !noTts)tts(en,slow); };
-  const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(!played && !noTts)tts(en,slow); });
-  setTimeout(()=>{ if(!played && !noTts)tts(en,slow); },waitMs); // 长句给更长时间加载，仍失败→浏览器原生TTS兜底
+  a.onerror=()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); };
+  const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); });
+  setTimeout(()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); },waitMs); // 长句给更长时间加载，仍失败→浏览器原生TTS兜底
 }
 /* 长句兜底：无离线音频且>=5词时，按<=4词切片依次播有道，避免撞500静音 */
 async function playChunks(words,slow){
@@ -4040,6 +4048,7 @@ function preloadQuizNext(){
   });
 }
 function quizSpeak(){
+  _audioGen++; // 新题发音：作废上一题挂起的异步兜底（防前后音重复）
   const it=quizQueue[quizIdx];if(!it)return;
   const c=store.cards[it];if(!c||!c.en)return;
   // 自动播放：先唤醒音频上下文（iOS/微信在题间常被 suspend→静音），确保后续出声

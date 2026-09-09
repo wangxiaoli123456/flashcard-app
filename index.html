@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788914400000';
+    var REL='1788916672000';
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -489,7 +489,7 @@ window.addEventListener('unhandledrejection',function(e){});
 </head>
 <body>
     <div id="errInfo" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#FF4444;color:#fff;padding:10px;font-size:13px;font-family:sans-serif;word-break:break-all;"></div>
-    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{var u=location.href.split('#')[0].split('?')[0];location.replace(u+'?_r='+Date.now());}catch(e){location.reload(true);}">🔄 发现新版本，点此刷新</div>
+    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{if(window.__LATEST_VER__)sessionStorage.setItem('__upd_clicked__',window.__LATEST_VER__);}catch(e){}try{var u=location.href.split('#')[0].split('?')[0];location.replace(u+'?_r='+Date.now());}catch(e){location.reload(true);}">🔄 发现新版本，点此刷新</div>
     <!-- 加载遮罩：避免闪白屏 -->
     <header>
         <h1>🔤 宝宝英语闪卡 <span id="verBadge" style="font-size:10px;font-weight:600;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:10px;vertical-align:middle;">v277</span></h1>
@@ -1345,7 +1345,29 @@ let dbReady=null;
 function openDB(){if(dbReady)return dbReady;dbReady=new Promise(r=>{try{if(!window.indexedDB){db=null;r();return;}const q=indexedDB.open('kideng-media',2);q.onupgradeneeded=()=>{try{q.result.createObjectStore('m');}catch(e){}try{q.result.createObjectStore('c');}catch(e){}};q.onsuccess=()=>{db=q.result;r();};q.onerror=()=>{db=null;r();};q.onblocked=()=>{db=null;r();};}catch(e){db=null;r();}});return dbReady;}
 /* 卡片主数据 → IndexedDB 'c' store（单键 'all' 存整个 cards 对象） */
 function idbPutCards(cards){
-  openDB().then(()=>{if(!db)return;try{const t=db.transaction('c','readwrite');t.objectStore('c').put(cards,'all');}catch(e){}});
+  openDB().then(()=>{
+    if(!db){ idbFallbackSave(cards); return; }   // v304：IndexedDB 不可用（iOS 无痕等）→ 回写 localStorage
+    try{
+      const t=db.transaction('c','readwrite');
+      t.objectStore('c').put(cards,'all');
+      t.onerror=()=>idbFallbackSave(cards);      // v304：写失败不再静默
+      t.onabort=()=>idbFallbackSave(cards);
+    }catch(e){ idbFallbackSave(cards); }
+  }).catch(()=>idbFallbackSave(cards));
+}
+/* v304 兜底：IndexedDB 写不进去时把 cards 回写 localStorage。
+   原实现静默失败，而 boot() 成功后已把 localStorage 里的 cards 删掉 → 一旦 IDB 挂了，本次会话学习记录全丢且无提示。 */
+let _idbFallbackWarned=false;
+function idbFallbackSave(cards){
+  try{
+    const r=JSON.parse(localStorage.getItem(KEY)||'{}');
+    r.cards=cards;
+    localStorage.setItem(KEY,JSON.stringify(r));
+  }catch(e){
+    if(_idbFallbackWarned)return; _idbFallbackWarned=true;
+    try{showToast('⚠️ 存储空间不足，学习记录可能无法保存，请立即「设置 → 导出备份」');}catch(_){}
+    try{showStorageWarn();}catch(_){}
+  }
 }
 function idbGetCards(){
   return new Promise(r=>{openDB().then(()=>{if(!db){r(null);return;}try{const q=db.transaction('c','readonly').objectStore('c').get('all');q.onsuccess=()=>r(q.result||null);q.onerror=()=>r(null);}catch(e){r(null);}}).catch(()=>r(null));});
@@ -1574,15 +1596,17 @@ function playSrc(url,rate){
     a.src=url;
   }
   a.playbackRate=rate;
+  const _gen=_audioGen;
   const p=a.play();
-  if(p&&p.catch)p.catch(()=>recoverPlay(url,rate)); // 被中断/锁定导致 play 被拒 → 换新元素重播，避免静音
+  if(p&&p.catch)p.catch(()=>recoverPlay(url,rate,_gen)); // 被中断/锁定导致 play 被拒 → 换新元素重播（带代际，防前后音重复）
   return a;
 }
 /* 移动端兜底：HTMLAudio 因"上一次播放被本轮新播放打断"或进入"需用户手势才能恢复"的锁定态时，
    play() 会被静默拒绝（表现正是磨耳朵"播着播着没声了、图片还在动"）。
    页面音频已被首次手势解锁，故新建一个全新 Audio 元素重播即可打破静音锁定。 */
-function recoverPlay(url,rate){
+function recoverPlay(url,rate,gen){
   try{
+    if(gen!==undefined&&gen!==_audioGen)return; // v304：本次播放已被新发音取代→不再补播，防「前后音重复」
     const b=new Audio();
     if(url instanceof Blob){ if(_curBlobUrl)URL.revokeObjectURL(_curBlobUrl); _curBlobUrl=URL.createObjectURL(url); b.src=_curBlobUrl; }
     else b.src=url;
@@ -1631,11 +1655,12 @@ function playEmbeddedWA(key,emb,rate){
       try{
         const s=audioCtx.createBufferSource(); s.buffer=b; s.playbackRate=rate;
         s.connect(audioCtx.destination);
-        s.onended=()=>{ try{s.disconnect();}catch(e){} };
+        s.onended=()=>{ try{ if(curWASource===s)curWASource=null; s.disconnect(); }catch(e){} }; // v304：播完必须清 curWASource，否则 120ms 假running 检测会误判"已结束的音源"并重播+永久拉黑该卡
         s.start(0); curWASource=s;
         // v247：iOS/微信「假 running」检测——start(0) 后若输出端仍未真正激活（状态仍 suspended 或
         // 极短时间窗口内无音频图产出），立即回退 HTMLAudio 直出，避免自动连播（听音选词/磨耳朵）整段静音。
-        setTimeout(()=>{ if(audioCtx.state!=='running' && curWASource===s){ try{ s.stop(); }catch(e){} curWASource=null; if(!_waFailed.has(key)){ _waFailed.add(key); } try{curAudio=playSrc(emb,rate);}catch(e){} } },120);
+        setTimeout(()=>{ if(gen!==_audioGen||curWASource!==s)return; // v304：切题/新发音后作废，防「前后音重复」
+          if(audioCtx.state!=='running'){ try{ s.stop(); }catch(e){} curWASource=null; if(!_waFailed.has(key)){ _waFailed.add(key); } try{curAudio=playSrc(emb,rate);}catch(e){} } },120);
         return true;
       }catch(e){ return false; }
     };
@@ -1644,7 +1669,8 @@ function playEmbeddedWA(key,emb,rate){
     if(audioCtx.state!=='running'){
       try{ const pr=audioCtx.resume(); if(pr&&pr.then) pr.then(play).catch(play); else play(); }catch(e){ play(); }
       // 兜底：250ms 内若 Web Audio 仍无法出声（ctx 未真正 running），改 HTMLAudio 直接播，绝不静音
-      setTimeout(()=>{ if(audioCtx.state!=='running'){ try{curAudio=playSrc(emb,rate);}catch(e){} } },250);
+      setTimeout(()=>{ if(gen!==_audioGen)return; // v304：切题后作废，否则上一张卡的迟到兜底会压在新音上（前后音重复）
+        if(audioCtx.state!=='running'){ try{curAudio=playSrc(emb,rate);}catch(e){} } },250);
       return true;
     }
     const ok=play();
@@ -1656,7 +1682,7 @@ function playEmbeddedWA(key,emb,rate){
   if(!_waBusy.has(key)){
     _waBusy.add(key);
     decodeToBuf(emb).then(b=>{ _waBufCache.set(key,b); _waBusy.delete(key); fire(); })
-      .catch(()=>{ _waBusy.delete(key); _waFailed.add(key); try{curAudio=playSrc(emb,rate);}catch(e){} }); // 解码失败→HTMLAudio 兜底出声（个别卡弹灵动岛但绝静音）
+      .catch(()=>{ _waBusy.delete(key); _waFailed.add(key); if(gen===_audioGen){ try{curAudio=playSrc(emb,rate);}catch(e){} } }); // v304：解码失败→HTMLAudio 兜底出声（已过代际则作废，防前后音重复）
   }
   return true; // 已安排异步解码后播放，视作已接管 Web Audio（不弹灵动岛）
 }
@@ -3778,6 +3804,11 @@ let newRep={}; // v211：新词三遍临时状态（整体循环3次，错1次�
 function renderFs(){
   const it=fsQueue[fsIdx];if(!it){closeFs();return;}
   const c=store.cards[it.id];
+  if(!c){ // v304：队列中残留已删除的卡 → 跳过前进，绝不崩（原实现后续 c.en 直接 TypeError）
+    const _ni=fsIdx+1;
+    if(_ni>=fsQueue.length){ finishFs(); return; }
+    fsIdx=_ni; renderFs(); return;
+  }
   const names={wrong:'错题池',new:'当日新词',confirm:'⏳ 次日确认',hist:'老词复习',egg:'小游戏彩蛋',view:'卡片预览',ear:'磨耳朵 · 自动播放',listen:'听音辨词'};
   document.getElementById('fsTitle').textContent=(fsTheme?((THEME_META[fsTheme]||{}).name||'Theme'):(names[it.pool]||''));
   // ② v220：顶栏轮次增强（新词卡显示「第N遍 · 位置」，其余保持原样）
@@ -3922,7 +3953,7 @@ function listenAnswer(good){
     // 听音答不上来 → 进错题池，次日（Day2）起才能答，隔天连对3次才出池
     const c=store.cards[it.id];
     if(c&&c.state!=='wrong'){
-      c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);
+      c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);
       if(c.confirm){c.confirm=false;c.confirmAt=null;c.nights=0;} // 取消待确认，避免与错题池"双重身份"
       log.lBad=(log.lBad||0)+1;
     }
@@ -4074,7 +4105,9 @@ function quizSpeak(){
   // 与 IndexedDB 异步竞态；在线兜底从 2.5s 收紧到 800ms，加原生 TTS 终保底，连续连播绝不静音。
   const emb=audioForEn(en);
   if(emb){ curAudio=playSrc(emb,rate); finishQuizSpeak(); return; }
+  const gen=_audioGen; // v304：记录本题代际；切题后所有迟到异步回调一律作废
   dbGet(audioKeyForEn(en)).then(url=>{
+    if(gen!==_audioGen)return;
     if(url){
       let src;
       if(url instanceof Blob){ if(_curBlobUrl)URL.revokeObjectURL(_curBlobUrl); _curBlobUrl=URL.createObjectURL(url); src=_curBlobUrl; }
@@ -4086,7 +4119,7 @@ function quizSpeak(){
     if(youdao){
       const a=playSrc(youdao,rate); curAudio=a;
       let played=false;
-      const goBaidu=()=>{ if(!played){ played=true; playBaidu(en,quizSlow); } };
+      const goBaidu=()=>{ if(gen!==_audioGen)return; if(!played){ played=true; playBaidu(en,quizSlow); } };
       a.onplaying=()=>{played=true;};
       a.onerror=()=>{ goBaidu(); };
       const p=a.play(); if(p&&p.catch)p.catch(()=>goBaidu());
@@ -4125,7 +4158,7 @@ function quizChoose(id,ok,el){
 function quizAddWrong(id){
   const c=store.cards[id];if(!c)return;
   const t=todayKey();
-  if(c.state!=='wrong'){c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);} // 进错题池：次日(Day2)起才能答，隔天连对3次出池
+  if(c.state!=='wrong'){c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);} // 进错题池：次日(Day2)起才能答，隔天连对3次出池
   if(c.confirm){c.confirm=false;c.confirmAt=null;c.nights=0;} // 听音答错取消"待确认"，避免状态矛盾
   markDirty(id,['state','streak','poolDate','next','confirm','confirmAt','nights']); // 标脏，确保云端增量同步收到"进错题池"
   quizWrongCnt++;
@@ -4504,7 +4537,7 @@ function startEarTimer(){
   earRep=0;
   earPlayCurrentThrice();
 }
-function stopEarTimer(){ if(earTimer){clearTimeout(earTimer);earTimer=null;} earStopSafety(); earPlayToken++; }
+function stopEarTimer(){ if(earTimer){clearTimeout(earTimer);earTimer=null;} earStopSafety(); earPlayToken++; _audioGen++; try{stopAudio();}catch(e){} } // v304：停播必须作废挂起的 TTS 兜底，否则迟到的 speechSynthesis 会污染 iOS 音频会话导致后续全哑
 function toggleEar(){
   earPlaying=!earPlaying;
   const btn=document.getElementById('earToggle');
@@ -4551,7 +4584,7 @@ function fsAnswer(good){ // good=1会 0不太会
       themeSession.bad++;
       // 主题「不会」→ 进错题池，与听音/听力同一套规则
       if(c&&c.state!=='wrong'){
-        c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);
+        c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);
         if(c.confirm){c.confirm=false;c.confirmAt=null;c.nights=0;} // 取消待确认，避免与错题池"双重身份"
       }
       if(c) markDirty(it.id,['state','streak','poolDate','next','confirm','confirmAt','nights']); // 标脏，确保云端增量同步收到"进错题池"
@@ -4565,8 +4598,15 @@ function fsAnswer(good){ // good=1会 0不太会
   const log=store.log[t]||(store.log[t]={});
   const LV=[0,3,7,14,30,60,90];
   if(it.pool==='wrong'){
-    // 防御：进池当天(next=明天)不可答；任何入口若误放入 Day1 卡，此处静默跳过，不破坏"Day1 不可答"规则
-    if(c.next&&dayDiff(t,c.next)>0){ showToast('还没到复习日，明天再来'); return; }
+    // 防御：next 晚于今天(未到期)才不可答；v304 修正——原写法 dayDiff(t,next)>0 拦的是「next 早于今天」即逾期卡，
+    // 导致隔天打开 App 时错题点「会/不会」都只弹 toast 且 fsIdx 不前进 → 永久卡死在这一题。
+    // 同时拦截时直接跳过前进，绝不停留在当前题（原 return 会卡死）。force 项=当晚补练插入，豁免。
+    if(c.next&&dayDiff(t,c.next)<0&&!it.force){
+      showToast('还没到复习日，跳过');
+      const _ni=fsIdx+1;
+      if(_ni>=fsQueue.length){ finishFs(); return; }
+      fsIdx=_ni; renderFs(); return;
+    }
     log.wRev=(log.wRev||0)+1;
     if(good){
       if(c.lastConfirm!==t){ c.streak=(c.streak||0)+1; c.lastConfirm=t; }
@@ -4581,7 +4621,7 @@ function fsAnswer(good){ // good=1会 0不太会
       c.state='hist';c.level=1;c.confirm=false;c.nights=0;c.streak=0;c.next=addDays(t,3);c.poolDate=null;c.master=false;
       log.wOut=(log.wOut||0)+1;showToast('🎉 次日确认通过，进入老词 L1');
     }else{
-      c.confirm=false;c.nights=0;c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);
+      c.confirm=false;c.nights=0;c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);
       log.wBad=(log.wBad||0)+1;showToast('😐 确认没过，已加入错题池');
     }
   }else if(it.pool==='new'){
@@ -4593,7 +4633,7 @@ function fsAnswer(good){ // good=1会 0不太会
         c.confirm=true;c.confirmAt=t;c.nights=1;c.streak=0;
         showToast('👍 三遍全对！明天再确认一次，通过就进老词');
       }else{
-        c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);
+        c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);
         showToast('😐 没对满三遍，已加入错题池');
       }
     }else if(it.rep===1||it.rep===2){
@@ -4605,7 +4645,7 @@ function fsAnswer(good){ // good=1会 0不太会
       if(good){
         if(!c.confirm){ c.confirm=true;c.confirmAt=t;c.nights=1;c.streak=0; showToast('👍 记下了！明天再确认一次，通过就进老词'); }
         else{ c.state='hist';c.level=1;c.confirm=false;c.nights=0;c.streak=0;c.next=addDays(t,3);c.poolDate=null;c.master=false; showToast('🎉 次日确认通过，进入老词 L1'); }
-      }else{ c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1); showToast('😐 已加入错题池'); }
+      }else{ c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1); showToast('😐 已加入错题池'); }
     }
   }else if(it.pool==='hist'){
     log.hRev=(log.hRev||0)+1;
@@ -4624,7 +4664,7 @@ function fsAnswer(good){ // good=1会 0不太会
         showToast('😐 归档词忘了，降回 L5 重新爬');
       }else{
         const lv=(c.level||1)-1;
-        if(lv<=0){c.state='wrong';c.streak=0;c.poolDate=t;c.next=addDays(t,1);showToast('😐 L1 再错，已回错题池');}
+        if(lv<=0){c.state='wrong';c.arch=false;c.archNext=null;c.streak=0;c.poolDate=t;c.next=addDays(t,1);showToast('😐 L1 再错，已回错题池');}
         else{c.level=lv;c.next=addDays(t,LV[c.level]);showToast('😐 降到 L'+c.level);}
       }
     }
@@ -4644,7 +4684,7 @@ function fsAnswer(good){ // good=1会 0不太会
     if(justFinishedNew){
       const _aw=new Set(fsQueue.filter(x=>x.pool==='wrong').map(x=>x.id));
       const _ins=Object.keys(newRep).filter(id=>newRep[id]&&store.cards[id]&&store.cards[id].state==='wrong'&&!_aw.has(id));
-      if(_ins.length){ fsQueue.splice(_ni,0,..._ins.map(id=>({id,pool:'wrong'}))); }
+      if(_ins.length){ fsQueue.splice(_ni,0,..._ins.map(id=>({id,pool:'wrong',force:true}))); } // v304：当晚补练项豁免"未到期"拦截，保证闭环不被 v304 修正打断
     }
     break;
   }
@@ -4807,7 +4847,7 @@ function fsMove(d){
   }
   fsIdx=(fsIdx+d+fsQueue.length)%fsQueue.length;renderFs();
 }
-function closeFs(){stopEarTimer();if(fsPool==='ear')releaseWakeLock();earPlaying=false;if(fsTheme)fsTheme=null;document.getElementById('fs').classList.remove('show');}
+function closeFs(){stopEarTimer();_audioGen++;try{stopAudio();}catch(e){}if(fsPool==='ear')releaseWakeLock();earPlaying=false;if(fsTheme)fsTheme=null;document.getElementById('fs').classList.remove('show');}
 function exitFs(){closeFs();}
 function speakCurrent(){const it=fsQueue[fsIdx];if(it)playWord(it.id);}
 /* 滑动翻页：在openFs时动态绑定到flip-wrap，避免被onclick吞掉 */
@@ -5697,7 +5737,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v303';
+const APP_VER='v304';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
@@ -6015,26 +6055,37 @@ idbGetCards().then(cards=>{
   }
   boot();
 });
-/* 版本自检：打开页面时对比线上版本，发现新版自动刷新（避免旧缓存导致用不到新功能） */
+/* v304：是否正在进行「不能被刷新打断」的操作（答题/复习/磨耳朵/编辑中一律不自动刷新，宁可下次打开再更新） */
+function isAppBusy(){
+  try{
+    if(typeof earPlaying!=='undefined'&&earPlaying)return true;
+    const ids=['fs','quiz','quizMean','quizBlank','editCard','recBox','sheet'];
+    for(const id of ids){ const el=document.getElementById(id); if(el&&el.classList&&el.classList.contains('show'))return true; }
+  }catch(e){}
+  return false;
+}
+/* 版本自检 v304：改比对线上 HTML 源码里的 REL 缓存戳。
+   原实现读 #verBadge 文本，但该文本要等 boot() 才写入，自检与其并发 → 读到 HTML 静态旧值 → 恒等、从不触发。 */
 (function autoUpdateCheck(){
   try{
-    const curVer=((document.getElementById('verBadge')||{}).textContent||'').trim();
-    if(!curVer)return;
+    const curRel=String((typeof REL!=='undefined'?REL:(window.REL||''))||'');
+    if(!curRel)return;
     const url=location.href.split('#')[0]+(location.href.indexOf('?')>=0?'&':'?')+'__v='+Date.now();
     fetch(url,{cache:'no-store'}).then(r=>r.text()).then(html=>{
       try{
-        const m=html.match(/<span id="verBadge"[^>]*>\s*([^<]+?)\s*<\/span>/);
-        if(m&&m[1].trim()&&m[1].trim()!==curVer){
-          // 发现新版：若不在学习/复习中则强制刷新（带 cache-bust query，绕过 iOS 主屏/ Safari 对静态页的死缓存）
-          if(!document.getElementById('fs').classList.contains('show')&&!document.getElementById('quiz').classList.contains('show')){
-            const base=location.href.split('#')[0];
-            location.href=base+(base.indexOf('?')>=0?'&':'?')+'_r='+Date.now();
-          }
-        }
+        const m=html.match(/var REL='([0-9]+)'/);
+        if(!m||!m[1]||m[1]===curRel)return;
+        if(isAppBusy())return;                    // 正在学习 → 绝不打断
+        const k='__upd_auto_t__';
+        const last=parseInt(localStorage.getItem(k)||'0',10);
+        if(Date.now()-last<10*60*1000)return;     // 熔断：10 分钟内最多自动刷新一次，防刷新风暴
+        localStorage.setItem(k,String(Date.now()));
+        const base=location.href.split('#')[0];
+        location.href=base+(base.indexOf('?')>=0?'&':'?')+'_r='+Date.now();
       }catch(e){}
-      }).catch(()=>{});
-    }catch(e){}
-  })();
+    }).catch(()=>{});
+  }catch(e){}
+})();
 /* ===== 主题元数据：卡片情境句 / 底图配色（普通复习也在用，非独立主题练习） ===== */
 let fsTheme=null; let themeSession=null; // 纯练习模式：本次主题练习统计，绝不写复习状态机/云端
 const THEME_META={
@@ -6067,6 +6118,9 @@ function showUpdateBanner(){ var b=document.getElementById('updateBanner'); if(b
       if(!nv)return;                 // 空内容 → 不提示
       if(!/^v?[\d.]+$/.test(nv))return;  // 不是版本号（比如返回了 404 页面）→ 不提示
       if(nv===APP_VER)return;        // 已是最新
+      try{ window.__LATEST_VER__=nv; }catch(e){}
+      // v304 熔断：用户已点过更新条、刷新后仍不一致（如版本号漏改）→ 不再反复弹，杜绝"无限更新条"
+      try{ if(sessionStorage.getItem('__upd_clicked__')===nv)return; }catch(e){}
       showUpdateBanner();
     }).catch(function(){});
   }catch(e){}

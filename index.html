@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788913365000';
+    var REL='1788914136000';
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -5682,7 +5682,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v301';
+const APP_VER='v302';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

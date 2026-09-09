@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788953840000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1788954699000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3417,6 +3417,16 @@ async function fetchWordAudioBuf(en){
       if(ab&&ab.byteLength>400)return ab;
     }catch(e){}
   }
+  // v307：预生成库没有 → 查本机「导入音频包」写入 IndexedDB 的音频（audioKey 与 en 强绑定，v170）
+  try{
+    if(typeof audioKeyForEn==='function'&&typeof dbGet==='function'){
+      const data=await dbGet(audioKeyForEn(en));
+      if(data){
+        const ab=(data instanceof Blob)?await data.arrayBuffer():data;
+        if(ab&&ab.byteLength>400)return ab;
+      }
+    }
+  }catch(e){}
   return null;
 }
 function resampleTo(arr,fromRate,toRate){
@@ -3470,6 +3480,15 @@ async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey){
   const player=document.getElementById(playerId), dl=document.getElementById(dlId);
   player.src=url;
   info.textContent=`已生成 ${used.length} 个单词音频·每个读3遍（点击播放 / 下载，或复制链接到其他设备）${skipped.length?(' · 跳过'+skipped.length+'个暂无音频的词'):''}`;
+  // v307：把跳过的词名列出来（可点复制），否则用户根本不知道缺的是哪些词
+  if(skipped.length){
+    try{ console.log('[磨耳朵] 暂无音频的词:',skipped.join(', ')); }catch(e){}
+    const tip=document.createElement('div');
+    tip.style.cssText='margin-top:8px;font-size:13px;color:#8A6D3B;background:#FFF8E1;border:1px dashed #E6C200;border-radius:12px;padding:9px 12px;line-height:1.7;word-break:break-all;cursor:pointer;';
+    tip.innerHTML='⚠️ 这 '+skipped.length+' 个词暂无音频（点此复制，发给助手补真人发音包）：<b>'+skipped.map(esc).join('、')+'</b>';
+    tip.onclick=()=>{ try{ navigator.clipboard.writeText(skipped.join('\n')); showToast('已复制词列表，发给助手即可补音频'); }catch(e){ try{ showToast(skipped.join('、')); }catch(_){} } };
+    info.appendChild(tip);
+  }
   box.style.display='block';
 }
 async function genWrongAudio(){
@@ -5752,7 +5771,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v306';
+const APP_VER='v307';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

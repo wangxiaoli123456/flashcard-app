@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788954699000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1788955939000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1531,6 +1531,13 @@ function b64en(en){ try{ return btoa(unescape(encodeURIComponent(en||''))).repla
 function sbAudioUrl(en, src){
   return 'https://bununhxkphvlvgvhanpk.supabase.co/storage/v1/object/public/flash-app/audio/' + b64en(en) + '_' + (src==='baidu'?'baidu':'youdao') + '.mp3';
 }
+/* v308：同源音频库（本仓库 audio/ 目录，随站点一起发布）。
+   两个不可替代的作用：
+   ① 同源 → 可 fetch 字节（有道/百度无 CORS 头，浏览器取不到字节），磨耳朵「合并音频」因此也能用上新词发音；
+   ② Supabase 云端库有 RLS 写入限制，新上传词的真人发音统一由助手补到这里并推送，用户零操作即生效。 */
+function ghAudioUrl(en, src){
+  return 'audio/' + b64en(en) + '_' + (src==='baidu'?'baidu':'youdao') + '.mp3';
+}
 function audioKeyForEn(en){
   const k=(en||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
   return 'a:'+k;
@@ -1767,7 +1774,13 @@ function playYoudao(en,slow){
   if(url){
     curAudio=playSrc(url,slow?0.8:1);
     let played=false;
-    const goBaidu=()=>{ if(gen===_audioGen && !played){played=true;playBaidu(en,slow,earn);} };
+    const goBaidu=()=>{ if(gen===_audioGen && !played){played=true;
+      // v308：云端预生成库没有这个词（今天新上传的词会 400）→ 同源库 → 直连有道 → 百度 → 原生TTS
+      const chain = words.length>=5
+        ? [sbAudioUrl(en,'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en), ghAudioUrl(en,'youdao'), directYoudaoUrl(en)]
+        : [ghAudioUrl(en,'youdao'), directYoudaoUrl(en), ghAudioUrl(en,'baidu'), sbAudioUrl(en,'baidu'), directBaiduUrl(en)];
+      playUrlChain(chain,{en:en,slow:slow,noTts:earn});
+    } };
     curAudio.onplaying=()=>{played=true;};
     curAudio.onerror=()=>{ goBaidu(); };
     const p=curAudio.play(); if(p&&p.catch)p.catch(()=>{ goBaidu(); });
@@ -1776,23 +1789,42 @@ function playYoudao(en,slow){
   }
   playBaidu(en,slow,earn);
 }
+/* v308：直连真人发音源（云端预生成库缺失时的兜底）。
+   页面已配 <meta name="referrer" content="no-referrer">，可规避有道/百度的 Referer 防盗链（v171 已验证）。
+   这是「今天新上传的词点了没声音」的根治方案：预生成库里没有的新词不再只剩浏览器 TTS（iOS 上常静默）。 */
+function directYoudaoUrl(en){const w=(en||'').trim();return w?'https://dict.youdao.com/dictvoice?audio='+encodeURIComponent(w)+'&type=2':'';}
+function directBaiduUrl(en){const w=(en||'').trim();return w?'https://fanyi.baidu.com/gettts?lan=en&text='+encodeURIComponent(w)+'&spd=3&source=web':'';}
+/* v308：按顺序尝试多个音频 URL，前一个失败（onerror / play 被拒 / 超时未出声）就切下一个；全失败才 TTS 兜底。
+   代际守卫 gen 保证切题/新发音后不再补播（防「前后音重复」）。 */
+function playUrlChain(urls,opt){
+  opt=opt||{};
+  const en=opt.en||'', slow=!!opt.slow, noTts=!!opt.noTts;
+  const gen=_audioGen, rate=slow?0.85:1;
+  const list=(urls||[]).filter(Boolean);
+  const wc=String(en).trim().split(/\s+/).filter(Boolean).length;
+  const waitMs=opt.waitMs||Math.max(2600, wc*450+1400);
+  let i=0, played=false, timer=null;
+  const stop=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+  const attempt=()=>{
+    if(played||gen!==_audioGen)return;
+    if(i>=list.length){ stop(); if(!noTts&&gen===_audioGen)tts(en,slow); return; }
+    const url=list[i++];
+    try{ if(curAudio) curAudio.pause(); }catch(e){}
+    const a=new Audio(); curAudio=a;
+    a.src=url; a.playbackRate=rate;
+    a.onplaying=()=>{ played=true; stop(); };
+    a.onerror=()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,80); };
+    const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,360); });
+    stop(); timer=setTimeout(()=>{ if(gen===_audioGen&&!played) attempt(); }, waitMs);
+  };
+  attempt();
+}
 /* 百度整句TTS：任意长度英文稳定200，audio元素直连播放不受CORS限制，真人级连贯；极端不通时浏览器TTS兜底 */
 function playBaidu(en,slow,noTts){
   // v297：百度整句给更多加载时间；用全新 Audio 元素播放，避免 iOS 上旧失败音频污染导致静音
-  const rate=slow?0.85:1;
-  const url=sbAudioUrl((en||'').trim(),'baidu');
-  const gen=_audioGen; // 代际守卫，防「前后音重复」
-  try{ if(curAudio) curAudio.pause(); }catch(e){}
-  const a=new Audio(); curAudio=a;
-  a.src=url; a.playbackRate=rate;
-  let played=false;
-  const words=(en||'').trim().split(/\s+/).filter(Boolean).length;
-  const waitMs=Math.max(3000, words*500+1500);
-  a.onplaying=()=>{played=true;};
-  // ear 模式下禁用 TTS 兜底：speechSynthesis 会污染 iOS 音频会话，导致后续 HTMLAudio 全部静音
-  a.onerror=()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); };
-  const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); });
-  setTimeout(()=>{ if(gen===_audioGen && !played && !noTts)tts(en,slow); },waitMs); // 长句给更长时间加载，仍失败→浏览器原生TTS兜底
+  // v308：云端库缺失 → 直连百度，仍失败才 TTS
+  const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
+  playUrlChain([sbAudioUrl((en||'').trim(),'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en)],{en:en,slow:slow,noTts:noTts||earn});
 }
 /* 长句兜底：无离线音频且>=5词时，按<=4词切片依次播有道，避免撞500静音 */
 async function playChunks(words,slow){
@@ -1837,8 +1869,8 @@ async function importAudioPack(file){
     const fullMap={}, firstMap={};
     Object.keys(store.cards).forEach(id=>{
       const c=store.cards[id]; if(!c||!c.en)return;
-      const full=c.en.trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
-      const first=c.en.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
+      const full=c.en.trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
+      const first=c.en.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
       (fullMap[full]=fullMap[full]||[]).push(id);
       (firstMap[first]=firstMap[first]||[]).push(id);
     });
@@ -3410,6 +3442,17 @@ async function fetchWordAudioBuf(en){
     const url=SB_MEDIA_URL+b64en(en)+'_'+src+'.mp3';
     try{
       const r=await fetch(url);
+      if(!r.ok)continue;
+      const ct=r.headers.get('content-type')||'';
+      if(!/audio|mpeg|mp3|octet/i.test(ct))continue;
+      const ab=await r.arrayBuffer();
+      if(ab&&ab.byteLength>400)return ab;
+    }catch(e){}
+  }
+  // v308：预生成库没有 → 查同源音频库（仓库 audio/ 目录，同源可 fetch 字节；助手可随时给新词补发音并推送）
+  for(const src of ['youdao','baidu']){
+    try{
+      const r=await fetch(ghAudioUrl(en,src));
       if(!r.ok)continue;
       const ct=r.headers.get('content-type')||'';
       if(!/audio|mpeg|mp3|octet/i.test(ct))continue;
@@ -5771,7 +5814,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v307';
+const APP_VER='v308';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

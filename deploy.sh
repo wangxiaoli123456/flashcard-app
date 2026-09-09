@@ -19,7 +19,8 @@ NUM=${CUR#v}
 NEXT="v$((NUM + 1))"
 
 # 2) 同步三件套（APP_VER + REL 写回 index.html，version.txt 单独写）
-python3 - "$NEXT" <<'PY'
+PYBIN=$(command -v python3 || command -v python3.11 || command -v python)
+"$PYBIN" - "$NEXT" <<'PY'
 import re, sys, time
 nxt = sys.argv[1]
 s = open('index.html', encoding='utf-8').read()

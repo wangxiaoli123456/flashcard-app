@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789026024000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789033611000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -60,6 +60,12 @@ window.addEventListener('unhandledrejection',function(e){});
     <meta http-equiv="Expires" content="0">
     <!-- 文档级 referrer 策略：no-referrer 让所有子资源(含 audio 的 src 请求)不带 Referer，规避百度/有道 TTS 接口的 Referer 防盗链(在线页面带 workbuddy.link 的 Referer 会被返空/500)。HTMLMediaElement 不支持 referrerPolicy 属性，必须用文档级 meta。 -->
     <meta name="referrer" content="no-referrer">
+    <!-- v325：提前与真人发音源建连（DNS+TCP+TLS），移动端每次可省 200~500ms。
+         audio 元素不带 crossorigin，故 preconnect 也不加 crossorigin，才能命中同一连接池。 -->
+    <link rel="preconnect" href="https://dict.youdao.com">
+    <link rel="dns-prefetch" href="https://dict.youdao.com">
+    <link rel="preconnect" href="https://fanyi.baidu.com">
+    <link rel="dns-prefetch" href="https://fanyi.baidu.com">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta name="theme-color" content="#3D7BE8">
@@ -1609,10 +1615,32 @@ function ghAudioUrl(en, src){
 const GH_AUDIO_WORDS=['aunt','bumble bee','close eyes','deep breath','eighty','fifty','forty','friend','hundred','mermaid','shy','together'];
 const GH_AUDIO_KEYS=new Set(GH_AUDIO_WORDS.map(b64en));
 function ghHas(en){ try{ return GH_AUDIO_KEYS.has(b64en((en||'').trim())); }catch(e){ return false; } }
-/* v309：本次会话内已确认「云端库没有」的词，下次直接跳过云端 → 第二次点击即秒播 */
-const _sbMiss=new Set();
-function sbMissed(en){ try{ return _sbMiss.has(b64en((en||'').trim())); }catch(e){ return false; } }
-function sbMarkMiss(en){ try{ _sbMiss.add(b64en((en||'').trim())); }catch(e){} }
+/* v325：miss 记录 = 「该词直连有道失败过」。命中则下次直连百度优先，省掉一次注定失败的往返。
+   两个关键修正：
+   ① 持久化到 localStorage（原先只在内存 Set 里，每次重开 App 同一批新词都要重付一次失败往返）；
+   ② 带 7 天有效期 —— 助手可能事后把该词真人音补进同源库，永久跳过就会永远错过。 */
+const _sbMiss=new Map();
+const _SBMISS_TTL=7*24*3600*1000;
+(function(){
+  try{
+    const raw=localStorage.getItem('fc_sbmiss_v1');
+    if(raw){ const o=JSON.parse(raw)||{}; const now=Date.now();
+      Object.keys(o).forEach(function(k){ const t=+o[k]||0; if(now-t<_SBMISS_TTL) _sbMiss.set(k,t); }); }
+  }catch(e){}
+})();
+function _sbMissSave(){
+  try{
+    const now=Date.now(), o={};
+    [..._sbMiss.entries()]
+      .filter(function(e){ return now-(+e[1]||0) < _SBMISS_TTL; })
+      .sort(function(a,b){ return (+b[1]||0)-(+a[1]||0); })
+      .slice(0,3000)
+      .forEach(function(e){ o[e[0]]=e[1]; });
+    localStorage.setItem('fc_sbmiss_v1', JSON.stringify(o));
+  }catch(e){}
+}
+function sbMissed(en){ try{ const t=_sbMiss.get(b64en((en||'').trim())); return t!==undefined && (Date.now()-(+t||0))<_SBMISS_TTL; }catch(e){ return false; } }
+function sbMarkMiss(en){ try{ _sbMiss.set(b64en((en||'').trim()), Date.now()); _sbMissSave(); }catch(e){} }
 function audioKeyForEn(en){
   const k=(en||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
   return 'a:'+k;
@@ -1860,36 +1888,26 @@ function playYoudao(en,slow){
   const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
   // v297：长句直接走百度整句真人音，避免有道对句子返500/空响应导致 iOS 音频元素卡住
   const words=(en||'').trim().split(/\s+/).filter(Boolean);
-  // v309：同源库已补齐（或上次已确认云端没有）→ 直接走同源库，跳过云端，避免白等一次 400 往返才出声
-  if(ghHas(en)||sbMissed(en)){
+  // 同源库里真有这个词 → 本地音频最快，且可 fetch 字节（磨耳朵合并音频用得上）
+  if(ghHas(en)){
     playUrlChain(words.length>=5
-      ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), sbAudioUrl(en,'baidu'), directBaiduUrl(en)]
-      : [ghAudioUrl(en,'youdao'), sbAudioUrl(en,'youdao'), directYoudaoUrl(en), ghAudioUrl(en,'baidu'), directBaiduUrl(en)],
-      {en:en,slow:slow,noTts:earn});
+      ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), directBaiduUrl(en), sbAudioUrl(en,'baidu')]
+      : [ghAudioUrl(en,'youdao'), ghAudioUrl(en,'baidu'), directYoudaoUrl(en), directBaiduUrl(en), sbAudioUrl(en,'youdao')],
+      {en:en,slow:slow,noTts:earn,waitMs:1400});
     return;
   }
   if(words.length>=5){ playBaidu(en,slow,earn); return; }
-  // 有道优先：标准美音，单词/短语更自然好听；
-  // 有道仅对多词句子返500，此时立即回退百度整句真人音（playBaidu 内部再加原生TTS 兜底），保证绝不静音。
-  // v276：发音走同源代理 /audio（服务端缓存有道/百度 mp3，规避第三方偶发抖动；常用词预取后秒出）。
-  const url=sbAudioUrl(en,'youdao');
-  if(url){
-    curAudio=playSrc(url,slow?0.8:1);
-    let played=false;
-    const goBaidu=()=>{ if(gen===_audioGen && !played){played=true;
-      // v308：云端预生成库没有这个词（今天新上传的词会 400）→ 同源库 → 直连有道 → 百度 → 原生TTS
-      const chain = words.length>=5
-        ? [sbAudioUrl(en,'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en), ghAudioUrl(en,'youdao'), directYoudaoUrl(en)]
-        : [ghAudioUrl(en,'youdao'), directYoudaoUrl(en), ghAudioUrl(en,'baidu'), sbAudioUrl(en,'baidu'), directBaiduUrl(en)];
-      playUrlChain(chain,{en:en,slow:slow,noTts:earn});
-    } };
-    curAudio.onplaying=()=>{played=true;};
-    curAudio.onerror=()=>{ sbMarkMiss(en); goBaidu(); };
-    const p=curAudio.play(); if(p&&p.catch)p.catch(()=>{ sbMarkMiss(en); goBaidu(); });
-    setTimeout(goBaidu,2500); // 2.5s 安全网：有道未出声→百度兜底
-    return;
-  }
-  playBaidu(en,slow,earn);
+  /* v325：同源库没有的新词 —— 这是「点播放很慢才出音」的根因所在。
+     旧链路第一跳打 Supabase 云端库（新词注定 400）、第二跳同源库（注定 404），
+     两次白等之后才轮到真正能出声的直连源；且每跳的等待上限是 2.6s，最坏要等 5 秒以上。
+     新链路：直连有道（音质最好）→ 直连百度 → 同源库（防清单没同步）→ 云端库（最后兜底）→ 原生TTS，
+     每跳等待上限收到 1.4s。 */
+  const dYou=directYoudaoUrl(en), dBai=directBaiduUrl(en);
+  const firstPair = sbMissed(en) ? [dBai, dYou] : [dYou, dBai];
+  playUrlChain(firstPair.concat([ghAudioUrl(en,'youdao'), ghAudioUrl(en,'baidu'), sbAudioUrl(en,'youdao'), sbAudioUrl(en,'baidu')]),
+    {en:en,slow:slow,noTts:earn,waitMs:1400,
+     onDone:function(ok){ if(!ok) sbMarkMiss(en); }}); // 整链都没出声 → 记一笔，下次先试百度
+  return;
 }
 /* v308：直连真人发音源（云端预生成库缺失时的兜底）。
    页面已配 <meta name="referrer" content="no-referrer">，可规避有道/百度的 Referer 防盗链（v171 已验证）。
@@ -1905,18 +1923,19 @@ function playUrlChain(urls,opt){
   const list=(urls||[]).filter(Boolean);
   const wc=String(en).trim().split(/\s+/).filter(Boolean).length;
   const waitMs=opt.waitMs||Math.max(2600, wc*450+1400);
-  let i=0, played=false, timer=null;
+  let i=0, played=false, timer=null, done=false;
   const stop=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+  const finish=(ok)=>{ if(done)return; done=true; try{ if(opt.onDone)opt.onDone(ok); }catch(e){} };
   const attempt=()=>{
     if(played||gen!==_audioGen)return;
-    if(i>=list.length){ stop(); if(!noTts&&gen===_audioGen)tts(en,slow); return; }
+    if(i>=list.length){ stop(); finish(false); if(!noTts&&gen===_audioGen)tts(en,slow); return; }
     const url=list[i++];
     const a=new Audio(); _liveAudios.add(a); stopAllLive(a); curAudio=a; // v311：登记新元素并全停旧元素，连点不叠音
     // v312：不在此处 cancel speechSynthesis（同上，iOS 会话污染会导致后续全哑）；TTS 只在 tts() 真正起播时自管
     a.preload='auto'; // v309：命中即尽快缓冲，缩短从点击到出声的等待
     a.src=url; a.playbackRate=rate;
     a.onended=()=>{ try{_liveAudios.delete(a);}catch(e){} };
-    a.onplaying=()=>{ played=true; stop(); };
+    a.onplaying=()=>{ played=true; stop(); finish(true); };
     a.onerror=()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,80); };
     const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,360); });
     stop(); timer=setTimeout(()=>{ if(gen===_audioGen&&!played) attempt(); }, waitMs);
@@ -1928,11 +1947,12 @@ function playBaidu(en,slow,noTts){
   // v297：百度整句给更多加载时间；用全新 Audio 元素播放，避免 iOS 上旧失败音频污染导致静音
   // v308：云端库缺失 → 直连百度，仍失败才 TTS
   const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
-  // v309：同源库已补齐的词优先同源，跳过云端那次注定 400 的往返
+  // v325：与 playYoudao 同一套排序原则 —— 云端库只对「同源库里确实有」的词排前面，
+  // 其余（长句、新词）一律直连百度优先，不再先撞一次注定 400 的云端往返。
   const list = ghHas(en)
-    ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), sbAudioUrl((en||'').trim(),'baidu'), directBaiduUrl(en)]
-    : [sbAudioUrl((en||'').trim(),'baidu'), ghAudioUrl(en,'baidu'), directBaiduUrl(en)];
-  playUrlChain(list,{en:en,slow:slow,noTts:noTts||earn});
+    ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), directBaiduUrl(en), sbAudioUrl((en||'').trim(),'baidu')]
+    : [directBaiduUrl(en), ghAudioUrl(en,'baidu'), directYoudaoUrl(en), sbAudioUrl((en||'').trim(),'baidu'), sbAudioUrl((en||'').trim(),'youdao')];
+  playUrlChain(list,{en:en,slow:slow,noTts:noTts||earn,waitMs:1600});
 }
 /* 长句兜底：无离线音频且>=5词时，按<=4词切片依次播有道，避免撞500静音 */
 async function playChunks(words,slow){
@@ -4732,7 +4752,8 @@ function earDelayForCurrent(){
          ③ onended 不触发时（失败/被打断）用安全超时/回退兜底推进，保证循环永不卡死。*/
 let earPlayToken=0;        // 每次起播自增，作废过期的回调（翻页/暂停/重开）
 let earSafetyTimer=null;
-function earStopSafety(){ if(earSafetyTimer){clearTimeout(earSafetyTimer);earSafetyTimer=null;} }
+let earStallTimer=null;    // v325：请求悬挂（既不 error 也不 playing）时快速切源，不再干等
+function earStopSafety(){ if(earSafetyTimer){clearTimeout(earSafetyTimer);earSafetyTimer=null;} if(earStallTimer){clearTimeout(earStallTimer);earStallTimer=null;} }
 
 /* 磨耳朵单遍发音。options={src:'youdao'|'baidu'（强制音源）, attempt:N} */
 function earPlayOne(en, onDone, options){
@@ -4749,12 +4770,14 @@ function earPlayOne(en, onDone, options){
   //   导致后续 HTMLAudio 全部静音（即「磨耳朵播着播着没声」的根因之一）。
   const firstSb = preferredSrc || (isLong?'baidu':'youdao');
   const secondSb = firstSb==='baidu'?'youdao':'baidu';
-  const srcList=[
-    sbAudioUrl(en, firstSb),
-    sbAudioUrl(en, secondSb),
-    youdaoUrl(en),                                                                                  // 在线有道真人音直连
-    'https://fanyi.baidu.com/gettts?lan=en&text='+encodeURIComponent(en)+'&spd=3&source=web'        // 在线百度真人音直连
-  ];
+  const dYou=youdaoUrl(en);                                                                         // 在线有道真人音直连
+  const dBai='https://fanyi.baidu.com/gettts?lan=en&text='+encodeURIComponent(en)+'&spd=3&source=web'; // 在线百度真人音直连
+  /* v325：原先不管什么词都先打两次 Supabase 云端库。新挑的词云端根本没有，
+     两次 400 往返（各几百毫秒）白等完才轮到真正能出声的直连源 —— 磨耳朵上表现就是「停一下才出声」。
+     新顺序：同源库里有 → 同源（最快）；否则直连有道/百度优先，云端库退到最后兜底。 */
+  const srcList = ghHas(en)
+    ? [ghAudioUrl(en, firstSb), ghAudioUrl(en, secondSb), sbAudioUrl(en, firstSb), dYou, dBai]
+    : (isLong ? [dBai, dYou] : [dYou, dBai]).concat([sbAudioUrl(en, firstSb), sbAudioUrl(en, secondSb)]);
   const a=getAudio();
   earStopSafety();
   try{ a.pause(); }catch(e){}
@@ -4775,6 +4798,16 @@ function earPlayOne(en, onDone, options){
   a.src=url;
   const p=a.play();
   if(p&&p.catch)p.catch(()=>{});   // play 被拒（iOS 偶发拦截）→ 安全兜底推进（onerror 也会触发）
+  /* v325：悬挂检测。网络抖动时请求可能既不 error 也永不 playing，
+     旧逻辑要等 3 秒以上的长兜底才推进（且是直接放弃、不换源）。现在 1.6s 未出声就切下一个源。 */
+  let started=false;
+  a.onplaying=()=>{ started=true; if(earStallTimer){clearTimeout(earStallTimer);earStallTimer=null;} };
+  earStallTimer=setTimeout(()=>{
+    if(started||done)return;
+    done=true; earStopSafety(); try{a.onended=null;a.onerror=null;}catch(e){}
+    try{a.pause();}catch(e){}
+    earPlayOne(en, onDone, {attempt:attempt+1, src:preferredSrc});
+  }, 1600);
   // 安全兜底：正常音频远超此时长；若超时说明 onended/onerror 都没触发，强制推进不卡住
   earSafetyTimer=setTimeout(safeDone, Math.max(3000, words.length*700+1500));
   return true;
@@ -6011,7 +6044,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v324';
+const APP_VER='v325';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

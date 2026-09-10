@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789018086000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789018299000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4210,15 +4210,22 @@ function startPickWord(){
 /* ===== 复习归档 · 听发音选词(前15, 四选一图片)+ 听发音选意思(后15, 无图中文四选一) =====
    取已归档词(arch=true)；纯练习不改复习计划；每题自带模式由 quizQMode 控制 */
 let quizQMode=[];   // v315：混合队列（复习归档）每题模式，'word'|'mean'，非空时 quizNext 走此分发
+let quizArchMode=false; // v316b：归档复习标志，true 时答错不踢出归档、仅标待巩固
 function startArchReview(){
   const archIds=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.arch&&c.en;});
   if(!archIds.length){showToast('还没有可复习的归档词');return;}
+  quizArchMode=true;   // v316b：进入归档复习，答错走 archReviewWrong（不踢归档）
+  // v316b：上次答错的"待巩固"词优先重现；被本局抽中的才清标记，未抽中的保留至下下局
+  const retry=archIds.filter(id=>store.cards[id].archWrong);
+  const used=new Set();
+  const take=(pool,n)=>{const out=[];for(const id of pool){if(used.has(id))continue;if(out.length>=n)break;out.push(id);used.add(id);}return out;};
   const withImg=shuffle(archIds.filter(id=>hasImg(store.cards[id])));
   const noImg=shuffle(archIds.filter(id=>!hasImg(store.cards[id])));
   const withCn=shuffle(archIds.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}));
-  const wordIds=padTo(withImg.concat(noImg).slice(0,15),15);   // 前15题：听音选词（优先有图）
-  const meanIds=padTo(withCn.slice(0,15),15);                  // 后15题：听音选意（需有中文释义，无图）
+  const wordIds=padTo(take(retry.concat(withImg,noImg),15),15);   // 前15题：听音选词（待巩固优先，图文皆可）
+  const meanIds=padTo(take(retry.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}).concat(withCn),15),15); // 后15题：听音选意（待巩固带中文优先）
   const ids=wordIds.concat(meanIds);
+  ids.forEach(id=>{ if(store.cards[id].archWrong){ store.cards[id].archWrong=false; markDirty(id,['archWrong']); } }); // 仅清除本局已抽中者
   quizQMode=ids.map((id,i)=> i<15?'word':'mean');              // v315：前15 word，后15 mean
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
   for(const k in meanOptCache)delete meanOptCache[k];
@@ -4349,7 +4356,7 @@ function quizChoose(id,ok,el){
   }else{
     quizBad++;sfx('bad');
     el.classList.add('bad');
-    quizAddWrong(it);
+    if(quizArchMode)archReviewWrong(it); else quizAddWrong(it); // v316b：归档复习答错不踢出归档
     quizWrongIds.push(it);
     document.querySelectorAll('.quiz-opt').forEach(o=>{if(o.dataset.ok==='1')o.classList.add('ok');}); // 亮出正确答案
     setTimeout(quizNext,1400);
@@ -4364,6 +4371,14 @@ function quizAddWrong(id){
   quizWrongCnt++;
   const log=store.log[t]||(store.log[t]={});
   log.l2Bad=(log.l2Bad||0)+1;
+  save();
+}
+/* v316b：归档复习答错——保持归档不动主计划，仅标 archWrong（待巩固），下次复习归档优先重现一次 */
+function archReviewWrong(id){
+  const c=store.cards[id];if(!c)return;
+  quizWrongCnt++;
+  c.archWrong=true;          // 不置 wrong、不改 arch/streak/poolDate/next，不打回错题池
+  markDirty(id,['archWrong']);
   save();
 }
 function quizNext(){
@@ -4387,10 +4402,14 @@ function quizFinish(){
   const total=quizQueue.length;
   const log=store.log[todayKey()]||(store.log[todayKey()]={});
   log.l2Done=(log.l2Done||0)+1;save();
-  showQuizResult({title:`本次完成：${total}题`,total,good:quizGood,bad:quizBad,wrongTip:`${quizWrongCnt}个单词加入错题池，次日(Day2)起可答`,wrongIds:quizWrongIds});
+  const wrongTip = quizArchMode
+    ? `${quizWrongCnt}个单词标为待巩固，下次复习归档优先重现`
+    : `${quizWrongCnt}个单词加入错题池，次日(Day2)起可答`;
+  showQuizResult({title:`本次完成：${total}题`,total,good:quizGood,bad:quizBad,wrongTip,wrongIds:quizWrongIds});
   closeQuiz();
 }
 function closeQuiz(){
+  quizArchMode=false; // v316b：退出测验清除归档复习标志
   document.getElementById('quiz').classList.remove('show','arch-review'); // v316：退出时移除归档标记，避免影响常规听音选词
   document.getElementById('quizMean').classList.remove('show');
   document.getElementById('quizBlank').classList.remove('show');
@@ -4481,7 +4500,9 @@ function meanChoose(ok,el){
     const star=document.getElementById('quizMeanStar');star.classList.remove('pop');void star.offsetWidth;star.classList.add('pop');star.textContent='⭐ '+quizGood;
     setTimeout(quizNext,900); // 答对不改记忆状态，纯检测
   }else{
-    quizBad++;sfx('bad');el.classList.add('bad');quizAddWrong(it);quizWrongIds.push(it);
+    quizBad++;sfx('bad');el.classList.add('bad');
+    if(quizArchMode)archReviewWrong(it); else quizAddWrong(it); // v316b：归档复习答错不踢出归档
+    quizWrongIds.push(it);
     document.querySelectorAll('.quiz-mean-opt').forEach(o=>{if(o.dataset.ok==='1')o.classList.add('ok');}); // 亮出正确答案
     setTimeout(quizNext,1400);
   }
@@ -5942,7 +5963,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v316';
+const APP_VER='v317';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

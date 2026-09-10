@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789020362000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789021382000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4099,9 +4099,9 @@ function listenAnswer(good){
   const t=todayKey();
   const log=store.log[t]||(store.log[t]={});
   log.lRev=(log.lRev||0)+1;
-  if(good){log.lGood=(log.lGood||0)+1;listenGood++;speakCurrent();} // 答对立即播正确词确认（走可靠HTMLAudio，避开Web Audio在iOS连续播放污染后续静音）
+  if(good){log.lGood=(log.lGood||0)+1;listenGood++;sfx('ok');speakCurrent();} // v321：答对=提示音+立即播正确词确认
   else{
-    listenBad++;listenWrongIds.push(it.id); // 去掉Web Audio合成音：避免连续播放污染iOS音频会话、导致后续自动播静音
+    listenBad++;listenWrongIds.push(it.id);sfx('bad'); // v321：答错=提示音（与听音选词同一套 sfx 短音，纯振荡器非TTS，不污染iOS会话）
     // 听音答不上来 → 进错题池，次日（Day2）起才能答，隔天连对3次才出池
     const c=store.cards[it.id];
     if(c&&c.state!=='wrong'){
@@ -5963,7 +5963,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v320';
+const APP_VER='v321';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

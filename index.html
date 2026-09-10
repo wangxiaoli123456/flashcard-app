@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789033611000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789050977000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -277,11 +277,13 @@ window.addEventListener('unhandledrejection',function(e){});
         .fold-n{font-size:12px;color:var(--muted);font-weight:600;}
         .fold-t{font-size:12px;color:var(--blue-dark);transition:transform .2s;}
         .fold-b{display:none;padding-top:14px;}
-        .fold.open .fold-b{display:block;}
-        .fold-grid.open .fold-b{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;animation:pageIn .25s ease;}
-        @media(min-width:500px){.fold-grid.open .fold-b{grid-template-columns:repeat(3,1fr);}}
-        .fold .fold-t{transform:rotate(0deg);}
-        .fold.open .fold-t{transform:rotate(180deg);}
+        /* v326：改用直接子选择器 —— 月份文件夹里嵌套了日期文件夹，
+           用后代选择器会让「月份展开」把里面所有收起的日期文件夹一起撑开 */
+        .fold.open>.fold-b{display:block;}
+        .fold-grid.open>.fold-b{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;animation:pageIn .25s ease;}
+        @media(min-width:500px){.fold-grid.open>.fold-b{grid-template-columns:repeat(3,1fr);}}
+        .fold>.fold-h .fold-t{transform:rotate(0deg);}
+        .fold.open>.fold-h .fold-t{transform:rotate(180deg);}
         audio{width:100%;}
         .audio-up{font-size:12px;color:var(--muted);margin-top:4px;}
         /* ===== 听音选词 · 四选一图片答题 ===== */
@@ -2067,6 +2069,7 @@ function importWordList(){
 let libTab='youqi';
 let libKw=''; // 素材库搜索关键词
 let libOpenBatches=new Set(); // 记住用户展开的素材库批次（删卡/重渲染后不折叠）
+let libOpenMonths=new Set();  // v326：记住用户展开的「月份」文件夹（当月默认展开，往月默认收起）
 function setLibTab(t){libTab=t;
   document.getElementById('libYq').className=t==='youqi'?'on-youqi':'';
   document.getElementById('libSq').className=t==='shiqi'?'on-shiqi':'';
@@ -2101,8 +2104,9 @@ function renderLib(){
   document.getElementById('libEmpty').style.display=hasAny?'none':'block';
   if(!hasAny)return;
 
-  batchNames.forEach(batch=>{
-    const ids=groups[batch];
+  const libTotal=Object.keys(store.cards).length;
+  // v326：单个批次文件夹抽成函数 —— 月份文件夹要嵌套调用它，日期批次从一级降为二级
+  function libBatchFolder(batch, ids){
     // 区分：确认过的新词(new) / 待确认(raw) / 其余已确认(hist·wrong等)
     const news=ids.filter(id=>store.cards[id].state==='new');
     const raws=ids.filter(id=>store.cards[id].state==='raw');
@@ -2111,7 +2115,6 @@ function renderLib(){
     // 文件夹标题：日期 + 总张数 + 已确认张数（可折叠）
     const folder=document.createElement('div');
     // 素材库文件夹：默认收起，点击展开（点开后显示该文件夹全部卡）；含待补全或用户展开过的批次展开
-    const libTotal=Object.keys(store.cards).length;
     const hasRaw=raws.length>0;
     const openByUser=libOpenBatches.has(batch); // 用户手动展开过的批次保持展开（删卡不折叠）
     const open=hasRaw||openByUser||!!libKw;
@@ -2166,8 +2169,52 @@ function renderLib(){
       folder.querySelector('.fold-t').textContent=open?'▲':'▼';
       if(open && !built){ built=true; renderSlice(); }
     };
-    grid.appendChild(folder);
+    return folder;
+  }
+
+  /* ===== v326：日期批次按「年-月」归并成两级（月份 → 日期）=====
+     年份取自卡上的 created（2026-09-10，含年份）；批次名只有「9月10日」没有年份，
+     不取 created 的话 2027 年的 9月10日 会和今年并进同一个文件夹。 */
+  const ymOfBatch=(b,bids)=>{
+    if(isArchBatch(b))return null;                                // 归档批次原样沉底，不套月份
+    if(!/^\d{1,2}月\d{1,2}日$/.test(String(b||'')))return null;   // 自定义批次名（如「动物类」）不套月份
+    for(const id of bids){
+      const m=/^(\d{4})-(\d{2})-\d{2}$/.exec(String((store.cards[id]||{}).created||''));
+      if(m)return m[1]+'-'+m[2];
+    }
+    return 'OLD';                                                 // 日期格式但取不到年份 → 归入「更早」
+  };
+  const monthMap={}, plain=[];
+  Object.keys(groups).forEach(b=>{
+    const ym=ymOfBatch(b,groups[b]);
+    if(ym)(monthMap[ym]=monthMap[ym]||[]).push(b); else plain.push(b);
   });
+  const ymKeys=Object.keys(monthMap).sort((a,b)=>{
+    if(a==='OLD')return 1; if(b==='OLD')return -1;
+    return a<b?1:-1;                                              // 2026年9月 → 2026年8月 …
+  });
+  plain.sort(cmpBatchDesc);
+  const curYM=todayKey().slice(0,7);
+  ymKeys.forEach(ym=>{
+    const bs=monthMap[ym].slice().sort(cmpBatchDesc);             // 月内：9月10日 → 9月2日
+    const mTotal=bs.reduce((s,b)=>s+groups[b].length,0);
+    const open=!!libKw || ym===curYM || libOpenMonths.has(ym);    // 当月默认展开，往月收起
+    const mf=document.createElement('div');
+    mf.className='card fold'+(open?' open':'');
+    mf.style.cssText='grid-column:1/-1;margin-top:6px;';
+    const mt=ym==='OLD'?'📁 更早':'📁 '+ym.slice(0,4)+'年'+Number(ym.slice(5))+'月';
+    mf.innerHTML=`<div class="fold-h"><div><span style="font-size:15px;font-weight:800;color:var(--blue-dark)">${esc(mt)}</span></div><div class="fold-meta"><span class="fold-n">${bs.length}批 · ${mTotal}张</span><span class="fold-t">${open?'▲':'▼'}</span></div></div><div class="fold-b"></div>`;
+    const mbody=mf.querySelector('.fold-b');
+    bs.forEach(b=>mbody.appendChild(libBatchFolder(b,groups[b])));
+    mf.querySelector('.fold-h').onclick=()=>{
+      const o=mf.classList.toggle('open');
+      if(o)libOpenMonths.add(ym);else libOpenMonths.delete(ym);
+      mf.querySelector('.fold-t').textContent=o?'▲':'▼';
+    };
+    grid.appendChild(mf);
+  });
+  // 归档批次（小小优趣Phase* / 适趣掌握的词）与自定义名批次：原样平铺，不套月份
+  plain.forEach(b=>grid.appendChild(libBatchFolder(b,groups[b])));
 
   // 有可确认的卡时显示"全部确认"横条
   const allRaws=Object.keys(store.cards).filter(id=>store.cards[id].src===libTab&&store.cards[id].state==='raw');
@@ -3252,6 +3299,8 @@ async function saveEdit(){
 }
 
 /* ===== 当日新词 ===== */
+let todayOpenMonths=new Set(); // v326：新词页展开过的「月份」文件夹（当月默认展开，往月收起）
+let todayOpenDays=new Set();   // v326：新词页展开过的「某日挑的」文件夹（今天挑的那天默认展开）
 function renderToday(){
   const t=todayKey();
   if(store.today.date!==t){
@@ -3276,22 +3325,26 @@ function renderToday(){
   const emptyEl=document.getElementById('todayEmpty');
   emptyEl.style.display=ids.length?'none':'block';
   document.getElementById('overWarn').style.display=ids.length>12?'block':'none';
-  // 按挑卡日期分组（什么时候挑的归什么时候；今天挑的 → 8月19日挑的）
-  const groups={};
+  /* v326：两级分组（月份 → 日期）。年份取 pickDate 的年月，
+     跨年后 2027年1月 不会和 2026年1月 并进同一个文件夹。 */
+  const groups={};   // 'YYYY-MM' -> { 'X月X日挑的': [ids] }
   ids.forEach(id=>{
     const c=store.cards[id];if(!c)return;
     const pd=c.pickDate||todayKey();
+    const ym=pd.slice(0,7);
     const label=Number(pd.split('-')[1])+'月'+Number(pd.split('-')[2])+'日挑的';
-    if(!groups[label])groups[label]=[];
-    groups[label].push(id);
+    if(!groups[ym])groups[ym]={};
+    (groups[ym][label]=groups[ym][label]||[]).push(id);
   });
-  const batchNames=Object.keys(groups).sort(cmpBatchDesc); // v310：X月X日数值降序
-  if(!batchNames.length)return;
-  batchNames.forEach(label=>{
-    const ids2=groups[label];
+  const ymKeys=Object.keys(groups).sort((a,b)=>a<b?1:-1); // 2026-09 → 2026-08 …
+  if(!ymKeys.length)return;
+  const curYM=t.slice(0,7);
+  const todayLabel=Number(t.slice(5,7))+'月'+Number(t.slice(8,10))+'日挑的';
+  function todayDayFolder(label, ids2){
     const fold=document.createElement('div');
-    fold.className='card fold fold-grid'; // 默认收起，点标题展开
-    fold.innerHTML=`<div class="fold-h"><div><span style="font-size:18px">📅</span> <span>${esc(label)}</span></div><div class="fold-meta"><span class="fold-n">${ids2.length}张</span><span class="fold-t">▼</span></div></div><div class="fold-b"></div>`;
+    const dOpen=(label===todayLabel)||todayOpenDays.has(label); // 今天挑的那天默认展开
+    fold.className='card fold fold-grid'+(dOpen?' open':''); // 默认收起，点标题展开
+    fold.innerHTML=`<div class="fold-h"><div><span style="font-size:18px">📅</span> <span>${esc(label)}</span></div><div class="fold-meta"><span class="fold-n">${ids2.length}张</span><span class="fold-t">${dOpen?'▲':'▼'}</span></div></div><div class="fold-b"></div>`;
     const body=fold.querySelector('.fold-b');
     // 排序：最新挑入的卡排最前面（挑入顺序倒序），每次挑的新词就在最上面
     const revToday=[...(store.today.ids||[])].reverse();
@@ -3309,9 +3362,27 @@ function renderToday(){
     });
     fold.querySelector('.fold-h').onclick=()=>{
       const open=fold.classList.toggle('open');
+      if(open)todayOpenDays.add(label);else todayOpenDays.delete(label);
       fold.querySelector('.fold-t').textContent=open?'▲':'▼';
     };
-    grid.appendChild(fold);
+    return fold;
+  }
+  ymKeys.forEach(ym=>{
+    const days=groups[ym];
+    const dayKeys=Object.keys(days).sort(cmpBatchDesc);   // 月内：9月10日 → 9月2日
+    const mTotal=dayKeys.reduce((s,k)=>s+days[k].length,0);
+    const open=(ym===curYM)||todayOpenMonths.has(ym);     // 当月默认展开，往月收起
+    const mf=document.createElement('div');
+    mf.className='card fold'+(open?' open':'');
+    mf.innerHTML=`<div class="fold-h"><div><span style="font-size:18px">📅</span> <span style="color:var(--blue-dark)">${esc(ym.slice(0,4)+'年'+Number(ym.slice(5))+'月')}</span></div><div class="fold-meta"><span class="fold-n">${mTotal}张</span><span class="fold-t">${open?'▲':'▼'}</span></div></div><div class="fold-b"></div>`;
+    const mbody=mf.querySelector('.fold-b');
+    dayKeys.forEach(k=>mbody.appendChild(todayDayFolder(k,days[k])));
+    mf.querySelector('.fold-h').onclick=()=>{
+      const o=mf.classList.toggle('open');
+      if(o)todayOpenMonths.add(ym);else todayOpenMonths.delete(ym);
+      mf.querySelector('.fold-t').textContent=o?'▲':'▼';
+    };
+    grid.appendChild(mf);
   });
 }
 function removeFromToday(id){
@@ -6044,7 +6115,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v325';
+const APP_VER='v326';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

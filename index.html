@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789010664000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789011438000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1508,7 +1508,8 @@ function ensureAudioCtx(){
    连续点击发音时新旧两路同时出声——表现为「两个人一起读」。统一登记，新发音开始时全部停掉。 */
 const _liveAudios=new Set();
 function stopAllLive(except){
-  _liveAudios.forEach(a=>{ if(a!==except){ try{a.pause();}catch(e){} try{a.src='';}catch(e){} } });
+  // v312：只 pause，绝不清空 src —— iOS Safari 上对被打断的元素置空 src 会让媒体元素进入错误状态，后续播放全哑
+  _liveAudios.forEach(a=>{ if(a!==except){ try{a.pause();}catch(e){} } });
   _liveAudios.clear();
   try{ if(except)_liveAudios.add(except); }catch(e){}
 }
@@ -1633,7 +1634,7 @@ function playSrc(url,rate){
   const a=getAudio();
   try{ a.pause(); }catch(e){}
   stopAllLive(a); // v311：停掉链式兜底/恢复播放遗留的其它元素，防多点叠音
-  try{ speechSynthesis.cancel(); }catch(e){} // v311：停掉上一路 TTS 合成音，防「真人+合成」两个人一起读
+  // v312：这里绝不能调 speechSynthesis.cancel() —— 每次发音都 cancel 会污染 iOS 音频会话，导致后续 HTMLAudio 全部静音
   if(url instanceof Blob){
     if(_curBlobUrl)URL.revokeObjectURL(_curBlobUrl);
     _curBlobUrl=URL.createObjectURL(url);
@@ -1858,7 +1859,7 @@ function playUrlChain(urls,opt){
     if(i>=list.length){ stop(); if(!noTts&&gen===_audioGen)tts(en,slow); return; }
     const url=list[i++];
     const a=new Audio(); _liveAudios.add(a); stopAllLive(a); curAudio=a; // v311：登记新元素并全停旧元素，连点不叠音
-    try{ speechSynthesis.cancel(); }catch(e){} // v311：上一路 TTS 合成音一并停掉
+    // v312：不在此处 cancel speechSynthesis（同上，iOS 会话污染会导致后续全哑）；TTS 只在 tts() 真正起播时自管
     a.preload='auto'; // v309：命中即尽快缓冲，缩短从点击到出声的等待
     a.src=url; a.playbackRate=rate;
     a.onended=()=>{ try{_liveAudios.delete(a);}catch(e){} };
@@ -5881,7 +5882,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v311';
+const APP_VER='v312';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

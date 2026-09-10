@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789011748000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789016203000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -619,12 +619,18 @@ window.addEventListener('unhandledrejection',function(e){});
             <div class="sub">看图片听发音 · 选中文意思 · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
             <button class="btn btn-orange btn-sm pbtn" onclick="startPickMean()">开始选意思</button>
         </div>
+        <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF);">
+            <h3>🗂️ 复习归档 30 张</h3>
+            <div class="sub">听发音选图片 · 取已归档的词 · 固定30题 · 纯练习，不改复习计划</div>
+            <button class="btn btn-purple btn-sm pbtn" onclick="startArchReview()">开始复习归档</button>
+            <div style="margin-top:8px"><span class="pnum" id="cntArch" style="color:#9F6BFF">0</span> <span style="font-size:12px;color:#999">张已归档可复习</span></div>
+        </div>
         <div class="pool" style="background:linear-gradient(135deg,#F0F7FF,#E0EEFF);">
             <h3>🎧 听音辨词</h3>
             <div class="sub">听发音辨词 · 固定30题 · 纯练习，不改复习计划</div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('listen')">开始辨词</button>
         </div>
-        <div class="pool" style="background:linear-gradient(135deg,#EAFBF0,#D6F5E3);">
+        <div class="pool" style="background:linear-gradient(135deg,#EAFBF0,#D6F5E3);display:none">
             <h3>✏️ 句子填空</h3>
             <div class="sub">看挖空句子选词 · 听整句发音 · 固定20题 · 答错进错题池，次日(Day2)起可答</div>
             <button class="btn btn-green btn-sm pbtn" onclick="startSentenceBlank()">开始填空</button>
@@ -3671,6 +3677,8 @@ function renderReviewPage(){
   const cntHist=document.getElementById('cntHist');if(cntHist)cntHist.textContent=hCnt;
   const chAll=document.getElementById('cntHistAll');if(chAll)chAll.textContent=hAll;
   const cntMaster=document.getElementById('cntMaster');if(cntMaster)cntMaster.textContent=mCnt;
+  const archCnt=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.arch&&c.en;}).length;
+  const caEl=document.getElementById('cntArch');if(caEl)caEl.textContent=archCnt;
   renderMasterList();
   // 日报
   const log=store.log[t];
@@ -4176,6 +4184,34 @@ function quizPickOptions(targetId){
 function startPickWord(){
   const ids=buildQuizPool();
   if(!ids.length){showToast('还没有可听的卡，先学几天');return;}
+  for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
+  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];
+  const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
+  document.getElementById('quiz').classList.add('show');
+  // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
+  const first=[ids[0],...quizPickOptions(ids[0])];
+  let pending=first.length, started=false;
+  const begin=()=>{ if(started)return; started=true; renderQuiz(); };
+  first.forEach(id=>{
+    const c=store.cards[id];
+    if(!c){ if(--pending<=0)begin(); return; }
+    cardImgUrl(c,u=>{
+      if(u){ const im=new Image(); im.onload=()=>{ if(--pending<=0)begin(); }; im.onerror=()=>{ if(--pending<=0)begin(); }; im.src=u; }
+      else { if(--pending<=0)begin(); }
+    },200);
+  });
+  setTimeout(begin, 4000);  // 兜底：最多等 4 秒，不等就直接开始
+}
+/* ===== 复习归档 30 张 · 听发音选图片（四选一），取已归档的词（arch=true） =====
+   与听音选词同款四选一图片答题，仅取词来源换成归档词；固定30题，纯练习不改复习计划 */
+function startArchReview(){
+  // 优先有图归档词，不足再从无图归档词补，保证尽量凑满 30 且每题有图
+  const archIds=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.arch&&c.en;});
+  if(!archIds.length){showToast('还没有可复习的归档词');return;}
+  const withImg=archIds.filter(id=>hasImg(store.cards[id]));
+  const noImg=archIds.filter(id=>!hasImg(store.cards[id]));
+  const pool=shuffle(withImg).concat(shuffle(noImg));
+  const ids=padTo(pool.slice(0,QUIZ_TOTAL),QUIZ_TOTAL);
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
   quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
@@ -5882,7 +5918,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v313';
+const APP_VER='v314';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

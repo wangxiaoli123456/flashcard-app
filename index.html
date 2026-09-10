@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789021382000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789024067000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -191,6 +191,24 @@ window.addEventListener('unhandledrejection',function(e){});
         .pool-toggle .arr{display:none} /* v92: pool-list已移除，箭头无意义 */
         .pool-list{display:none;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(23,43,77,.08)}
         .pool.open .pool-list{display:block}
+        /* v322：复习页改版——分组标题 + 主数字 + 规则折叠；并给右上角按钮让位避免长文被压住 */
+        .grp{display:flex;align-items:center;gap:8px;margin:16px 2px 10px;font-size:13px;font-weight:800;color:#6B7794}
+        .grp::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#D8E2F0,transparent)}
+        .grp .dot{width:6px;height:6px;border-radius:50%;background:#FF9B3D}
+        .grp.play .dot{background:#9F6BFF}
+        .grp em{font-style:normal;font-weight:600;font-size:11px;color:#A9B5C7}
+        .pool .bignum{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.15;margin-top:2px}
+        .pool .bignum small{font-size:12px;font-weight:700;color:#8A97AB;margin-left:3px}
+        .pool .mini{font-size:12px;color:#8A97AB;margin-top:2px}
+        .pool .mini b{color:#5A6B84}
+        .pool .rule{margin-top:8px;font-size:11.5px;color:#7C8AA0;background:rgba(255,255,255,.62);border-radius:10px;overflow:hidden}
+        .pool .rule .rt{padding:6px 10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none}
+        .pool .rule .rb{display:none;padding:0 10px 8px;line-height:1.65;border-top:1px dashed rgba(23,43,77,.08);padding-top:6px}
+        .pool .rule.open .rb{display:block}
+        .pool .rule .rt .ar{transition:transform .2s;display:inline-block}
+        .pool .rule.open .rt .ar{transform:rotate(90deg)}
+        .pool-toggle{padding-right:74px}            /* 单按钮池：给右上「开始」让位 */
+        .pool-wrong .pool-toggle{padding-right:132px} /* 错题池双按钮（含「生成错题音频」更宽）*/
         .pool-list .pl-row{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;border-bottom:1px dashed rgba(23,43,77,.05)}
         .pool-list .pl-row:last-child{border-bottom:none}
         .pool-list .pl-row .wd{min-width:90px;font-weight:700;color:#26324A}
@@ -563,18 +581,24 @@ window.addEventListener('unhandledrejection',function(e){});
 
     <!-- 页3：睡前复习（三池独立） -->
     <div class="page" id="page-review">
+        <!-- v322：主按钮上移置顶（原在最底部），并按「今晚必做 / 加练」分组 -->
+        <button class="btn btn-green btn-block" onclick="startAll()" style="margin-bottom:4px">🌙 一键开始今晚复习（按顺序）</button>
+        <div class="grp"><span class="dot"></span>今晚必做 · 按顺序 <em>不做会断档</em></div>
         <div class="pool pool-new" data-pool="new">
-            <div class="pool-toggle" onclick="togglePool('new')">
-                <h3><span class="arr">▶</span>🟠 ① 当日新词 <span style="font-size:12px;color:#C58A6A">最高优先级</span></h3>
-                <div><span class="pnum" id="cntNew" style="color:#FF9B3D;cursor:pointer" title="点击查看" onclick="viewNumCards('new')">0</span> <span style="font-size:12px;color:#999">张新词</span> <span style="color:#C9D2E0;font-size:12px">·</span> <span class="pnum" id="cntConfirm" style="color:#5B7CFA;cursor:pointer" title="点击查看" onclick="viewNumCards('confirm')">0</span> <span style="font-size:12px;color:#999">张待确认</span> <span id="cnfToday" style="font-size:12px;color:#2E9E5B;font-weight:700;cursor:pointer" title="点击回看已确认记录" onclick="viewNumCards('confirm')"></span> <span style="font-size:12px;color:#999">· 点「累计已确认」可回看</span></div>
+            <div class="pool-toggle">
+                <h3>🟠 ① 当日新词 <span style="font-size:12px;color:#C58A6A;font-weight:700">最高优先级</span></h3>
+                <div class="bignum" style="color:#FF9B3D"><span id="cntNew" style="cursor:pointer" title="点击查看" onclick="viewNumCards('new')">0</span><small>张待学</small></div>
+                <div class="mini">待确认 <b><span id="cntConfirm" style="cursor:pointer" title="点击查看" onclick="viewNumCards('confirm')">0</span></b> 张<span id="cnfToday" style="color:#2E9E5B;font-weight:700;cursor:pointer" title="点击回看已确认记录" onclick="viewNumCards('confirm')"></span></div>
+                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">今晚挑的新词读三遍，三遍全对才算确认；末遍答错进错题池。确认后次日再答一次，通过即进入老词 L1。</div></div>
             </div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('new')">开始</button>
         </div>
         <div class="pool pool-wrong" data-pool="wrong">
-            <div class="pool-toggle" onclick="togglePool('wrong')">
-                <h3><span class="arr">▶</span>🔴 ② 错题池</h3>
-                <div class="sub">不太会立即进池 · 连续3次「会」出池（进池当天不可答 · 首次会次日(Day2)起可答 · 之后每次隔1天）· 答错重置 · 满7天未出池自动转入未掌握队列 · 在池总数含今天刚进池、明天才到期的；今天可答仅含已到期</div>
-                <div><span class="pnum" id="cntWrong" style="color:#FF7043;cursor:pointer" title="点击查看" onclick="viewNumCards('wrongAll')">0</span> <span style="font-size:12px;color:#999">张在池</span>　<span class="pnum" id="cntWrongDue" style="color:#FF7043;cursor:pointer" title="点击查看" onclick="viewNumCards('wrongDue')">0</span> <span style="font-size:12px;color:#999">张今天可答 · 点数字查看</span></div>
+            <div class="pool-toggle">
+                <h3>🔴 ② 错题池</h3>
+                <div class="bignum" style="color:#FF7043"><span id="cntWrongDue" style="cursor:pointer" title="点击查看今天可答" onclick="viewNumCards('wrongDue')">0</span><small>张今天可答</small></div>
+                <div class="mini">在池共 <b><span id="cntWrong" style="cursor:pointer" title="点击查看全部在池" onclick="viewNumCards('wrongAll')">0</span></b> 张</div>
+                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">不太会立即进池 · 连续 3 次「会」出池（进池当天不可答，首次会次日 Day2 起可答，之后每次隔 1 天）· 答错重置 · 满 7 天未出池自动转入未掌握队列。</div></div>
             </div>
             <div style="position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;z-index:2">
               <button class="btn btn-red btn-sm" onclick="startPool('wrong')">开始</button>
@@ -592,7 +616,7 @@ window.addEventListener('unhandledrejection',function(e){});
             <div style="background:linear-gradient(135deg,#FFF6E8,#FFEFD6);border-radius:12px;padding:8px 12px;margin-top:10px;">
                 <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleMasterFold()">
                     <h3 style="flex:1;margin:0;font-size:15px;">🟠 未掌握队列</h3>
-                    <span class="pnum" style="color:#FF9B3D" id="cntMaster">0</span><span style="font-size:11px;color:#999">张</span>
+                    <span style="font-size:18px;font-weight:900;color:#FF9B3D" id="cntMaster">0</span><span style="font-size:11px;color:#999">张</span>
                     <span style="font-size:12px;color:#B8C4D6;transition:transform .2s;" id="masterFoldArrow">▶</span>
                 </div>
                 <div id="masterFoldBody" style="display:none;margin-top:8px;">
@@ -602,32 +626,34 @@ window.addEventListener('unhandledrejection',function(e){});
             </div>
         </div>
         <div class="pool pool-hist" data-pool="hist">
-            <div class="pool-toggle" onclick="togglePool('hist')">
-                <h3><span class="arr">▶</span>🔵 ③ 历史老词 · 间隔阶梯</h3>
-                <div class="sub">L1-L6：3/7/14/30/60/90天 · 会升一级 · 不会降一级 · L1再错回错题池 · L6归档 · 在库总数含已归档；今天到期仅含到期的</div>
-                <div><span class="pnum" id="cntHistAll" style="color:#78C2FF;cursor:pointer" title="点击查看" onclick="viewNumCards('histAll')">0</span> <span style="font-size:12px;color:#999">张在库</span>　<span class="pnum" id="cntHist" style="color:#78C2FF;cursor:pointer" title="点击查看" onclick="viewNumCards('histDue')">0</span> <span style="font-size:12px;color:#999">张今天到期 · 点数字查看</span></div>
+            <div class="pool-toggle">
+                <h3>🔵 ③ 历史老词 · 间隔阶梯</h3>
+                <div class="bignum" style="color:#3D7BE8"><span id="cntHist" style="cursor:pointer" title="点击查看今天到期" onclick="viewNumCards('histDue')">0</span><small>张今天到期</small></div>
+                <div class="mini">在库共 <b><span id="cntHistAll" style="cursor:pointer" title="点击查看全部在库" onclick="viewNumCards('histAll')">0</span></b> 张</div>
+                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">L1-L6：3/7/14/30/60/90 天 · 会升一级 · 不会降一级 · L1 再错回错题池 · L6 归档。</div></div>
             </div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('hist')">开始</button>
         </div>
+        <div class="grp play"><span class="dot"></span>加练 · 不改进度 <em>随时可玩</em></div>
         <div class="pool" style="background:linear-gradient(135deg,#FFF1F5,#FFE4EC);">
-            <h3>🎵 听音选词（四选一）</h3>
-            <div class="sub">听发音选图片 · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
+            <h3>🎵 听音选词 <span style="font-size:12px;color:#B0708A;font-weight:700">四选一选图</span></h3>
+            <div class="sub">听发音选图片 · 固定 30 题 · 答错进错题池</div>
             <button class="btn btn-red btn-sm pbtn" onclick="startPickWord()">开始选词</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#FFF6E8,#FFEFD6);">
-            <h3>🧠 听音选意</h3>
-            <div class="sub">听发音选中文意思（无图） · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
+            <h3>🧠 听音选意 <span style="font-size:12px;color:#C58A6A;font-weight:700">无图</span></h3>
+            <div class="sub">听发音选中文意思 · 固定 30 题 · 答错进错题池</div>
             <button class="btn btn-orange btn-sm pbtn" onclick="startPickMean()">开始选意思</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF);">
-            <h3>🗂️ 复习归档</h3>
-            <div class="sub">听发音选图片(15)+选意思(15) · 取已归档的词 · 纯练习，不改复习计划 · <span id="cntArch" style="color:#9F6BFF;font-weight:700">0</span> 张已归档可复习</div>
+            <h3>🗂️ 复习归档 <span style="font-size:12px;color:#9F6BFF;font-weight:700"><span id="cntArch">0</span> 张可复习</span></h3>
+            <div class="sub">听音选词 15 + 听音选意 15 · 纯练习不改计划</div>
             <button class="btn btn-purple btn-sm pbtn" onclick="startArchReview()">开始复习归档</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#F0F7FF,#E0EEFF);">
-            <h3>🎧 听音辨词</h3>
-            <div class="sub">听发音辨词 · 固定30题 · 纯练习，不改复习计划</div>
-            <button class="btn btn-blue btn-sm pbtn" onclick="startPool('listen')">开始辨词</button>
+            <h3>🎧 听音抢答 <span style="font-size:12px;color:#4E88D8;font-weight:700">原名听音辨词</span></h3>
+            <div class="sub">听发音辨词看卡片 · 固定 30 题 · 纯练习</div>
+            <button class="btn btn-blue btn-sm pbtn" onclick="startPool('listen')">开始抢答</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#EAFBF0,#D6F5E3);display:none">
             <h3>✏️ 句子填空</h3>
@@ -635,7 +661,6 @@ window.addEventListener('unhandledrejection',function(e){});
             <button class="btn btn-green btn-sm pbtn" onclick="startSentenceBlank()">开始填空</button>
         </div>
 
-        <button class="btn btn-green btn-block" onclick="startAll()">🌙 一键开始今晚复习（按顺序）</button>
         <div class="card" style="margin-top:14px">
             <h2>📄 今晚学习日报</h2>
             <div class="report" id="report">
@@ -5963,7 +5988,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v321';
+const APP_VER='v322';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

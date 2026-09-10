@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1788965219000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789007953000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1552,6 +1552,22 @@ function audioKeyForEn(en){
   const k=(en||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
   return 'a:'+k;
 }
+/* v310：批次名按「月/日」数值降序比较 —— 修复「9月10日」被字符串比较排到「9月2日」后面的 bug（'1' 小于 '9'）。
+   支持「9月10日」「2026-09-09」两种格式；解析不出数值的批次名（小小优趣Phase、适趣掌握的词等）退回字符串降序。 */
+function batchNum(s){
+  const m=/(\d{1,2})月(\d{1,2})日/.exec(String(s||''));
+  if(m)return (+m[1])*100+(+m[2]);
+  const d=/(\d{4})[-年](\d{1,2})[-月](\d{1,2})/.exec(String(s||''));
+  if(d)return (+d[1])*10000+(+d[2])*100+(+d[3]);
+  return NaN;
+}
+function cmpBatchDesc(a,b){
+  const na=batchNum(a),nb=batchNum(b);
+  if(!isNaN(na)&&!isNaN(nb))return nb-na;
+  if(!isNaN(na))return -1;
+  if(!isNaN(nb))return 1;
+  return String(a)<String(b)?1:-1;
+}
 
 
 /* v175: iOS/微信自动播放兼容 - 统一走单一 HTMLAudio 元素，在用户手势内【同步】播放。
@@ -1990,7 +2006,7 @@ function renderLib(){
   const batchNames=Object.keys(groups).sort((a,b)=>{
     const aa=isArchBatch(a),bb=isArchBatch(b);
     if(aa!==bb)return aa?1:-1;        // 归档批次排后面
-    return a<b?1:-1;                  // 其余保持原降序
+    return cmpBatchDesc(a,b);         // v310：按月/日数值降序（字符串比较会让「9月10日」排到「9月2日」后面）
   });
   const hasAny=batchNames.length>0;
   document.getElementById('libEmpty').style.display=hasAny?'none':'block';
@@ -3180,7 +3196,7 @@ function renderToday(){
     if(!groups[label])groups[label]=[];
     groups[label].push(id);
   });
-  const batchNames=Object.keys(groups).sort().reverse();
+  const batchNames=Object.keys(groups).sort(cmpBatchDesc); // v310：X月X日数值降序
   if(!batchNames.length)return;
   batchNames.forEach(label=>{
     const ids2=groups[label];
@@ -5208,7 +5224,7 @@ function renderNumView(v){
       if(!gmap[g])gmap[g]=[];
       gmap[g].push(id);
     });
-    const gkeys=Object.keys(gmap).sort().reverse();
+    const gkeys=Object.keys(gmap).sort(cmpBatchDesc); // v310：X月X日数值降序
     html=gkeys.map(g=>{
       const rows=gmap[g].map(rowHtml).join('');
       return `<div style="font-size:12px;color:#FF9B3D;font-weight:800;padding:8px 2px 4px;display:flex;align-items:center;gap:6px"><span>📅</span> ${g}<span style="color:#C9A66B;font-weight:600">（${gmap[g].length}张）</span></div>${rows}`;
@@ -5224,7 +5240,7 @@ function renderNumView(v){
       if(!gmap[g])gmap[g]=[];
       gmap[g].push(id);
     });
-    const gkeys=Object.keys(gmap).sort().reverse();
+    const gkeys=Object.keys(gmap).sort(cmpBatchDesc); // v310：X月X日数值降序
     html=gkeys.map(g=>{
       const rows=gmap[g].map(id=>{
         const c=store.cards[id];
@@ -5850,7 +5866,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v309';
+const APP_VER='v310';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

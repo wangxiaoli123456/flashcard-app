@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789017101000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789018086000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -282,6 +282,11 @@ window.addEventListener('unhandledrejection',function(e){});
         .quiz-opt img{width:100%;height:100%;object-fit:contain;display:block;}
         .quiz-opt .noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:56px;background:linear-gradient(135deg,#F2F7FF,#E8F0FB);}
         .quiz-opt .quiz-txt{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#4A6C9B;text-align:center;padding:8px;box-sizing:border-box;background:linear-gradient(135deg,#F2F7FF,#E8F0FB);}
+        /* v316：复习归档照片缩小，与"小字"尺寸接近、居中不铺满（仅归档复习生效，不影响常规听音选词） */
+        #quiz.arch-review .quiz-opt{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#F2F7FF,#E8F0FB);}
+        #quiz.arch-review .quiz-opt img{width:54%;height:54%;object-fit:contain;border-radius:16px;box-shadow:0 4px 10px -4px rgba(23,43,77,.2);}
+        #quiz.arch-review .quiz-opt .noimg{font-size:42px;background:transparent;}
+        #quiz.arch-review .quiz-opt .quiz-txt{font-size:28px;background:transparent;}
         /* ===== 听音选意思 · 看图听音选中文意思（听音选词对称变体） ===== */
         .quiz-mean-img{width:200px;height:200px;border-radius:24px;overflow:hidden;background:#fff;box-shadow:0 10px 24px -8px rgba(23,43,77,.22);display:flex;align-items:center;justify-content:center;}
         .quiz-mean-img img{width:100%;height:100%;object-fit:contain;display:block;}
@@ -4222,7 +4227,7 @@ function startArchReview(){
   const sw=document.getElementById('meanModeSwitch');if(sw)sw.style.display='none'; // 听音选意无图，隐藏切换
   const qm=document.getElementById('quizMean');if(qm)qm.classList.add('no-img');
   meanShowImg=false;
-  document.getElementById('quiz').classList.add('show'); // 首题为 word 模式
+  document.getElementById('quiz').classList.add('show','arch-review'); // v316：标记归档复习，缩小选项照片
   // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
   const first=[ids[0],...quizPickOptions(ids[0])];
   let pending=first.length, started=false;
@@ -4386,7 +4391,7 @@ function quizFinish(){
   closeQuiz();
 }
 function closeQuiz(){
-  document.getElementById('quiz').classList.remove('show');
+  document.getElementById('quiz').classList.remove('show','arch-review'); // v316：退出时移除归档标记，避免影响常规听音选词
   document.getElementById('quizMean').classList.remove('show');
   document.getElementById('quizBlank').classList.remove('show');
   stopAudio();
@@ -5937,7 +5942,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v315';
+const APP_VER='v316';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

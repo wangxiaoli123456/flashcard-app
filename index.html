@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789016203000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789017101000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -615,13 +615,13 @@ window.addEventListener('unhandledrejection',function(e){});
             <button class="btn btn-red btn-sm pbtn" onclick="startPickWord()">开始选词</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#FFF6E8,#FFEFD6);">
-            <h3>🧠 听音选意思</h3>
-            <div class="sub">看图片听发音 · 选中文意思 · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
+            <h3>🧠 听音选意</h3>
+            <div class="sub">听发音选中文意思（无图） · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
             <button class="btn btn-orange btn-sm pbtn" onclick="startPickMean()">开始选意思</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF);">
-            <h3>🗂️ 复习归档 30 张</h3>
-            <div class="sub">听发音选图片 · 取已归档的词 · 固定30题 · 纯练习，不改复习计划</div>
+            <h3>🗂️ 复习归档</h3>
+            <div class="sub">听发音选图片(15)+选意思(15) · 取已归档的词 · 纯练习，不改复习计划</div>
             <button class="btn btn-purple btn-sm pbtn" onclick="startArchReview()">开始复习归档</button>
             <div style="margin-top:8px"><span class="pnum" id="cntArch" style="color:#9F6BFF">0</span> <span style="font-size:12px;color:#999">张已归档可复习</span></div>
         </div>
@@ -4185,7 +4185,7 @@ function startPickWord(){
   const ids=buildQuizPool();
   if(!ids.length){showToast('还没有可听的卡，先学几天');return;}
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
-  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];
+  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];quizQMode=[];
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
   document.getElementById('quiz').classList.add('show');
   // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
@@ -4202,24 +4202,31 @@ function startPickWord(){
   });
   setTimeout(begin, 4000);  // 兜底：最多等 4 秒，不等就直接开始
 }
-/* ===== 复习归档 30 张 · 听发音选图片（四选一），取已归档的词（arch=true） =====
-   与听音选词同款四选一图片答题，仅取词来源换成归档词；固定30题，纯练习不改复习计划 */
+/* ===== 复习归档 · 听发音选词(前15, 四选一图片)+ 听发音选意思(后15, 无图中文四选一) =====
+   取已归档词(arch=true)；纯练习不改复习计划；每题自带模式由 quizQMode 控制 */
+let quizQMode=[];   // v315：混合队列（复习归档）每题模式，'word'|'mean'，非空时 quizNext 走此分发
 function startArchReview(){
-  // 优先有图归档词，不足再从无图归档词补，保证尽量凑满 30 且每题有图
   const archIds=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.arch&&c.en;});
   if(!archIds.length){showToast('还没有可复习的归档词');return;}
-  const withImg=archIds.filter(id=>hasImg(store.cards[id]));
-  const noImg=archIds.filter(id=>!hasImg(store.cards[id]));
-  const pool=shuffle(withImg).concat(shuffle(noImg));
-  const ids=padTo(pool.slice(0,QUIZ_TOTAL),QUIZ_TOTAL);
+  const withImg=shuffle(archIds.filter(id=>hasImg(store.cards[id])));
+  const noImg=shuffle(archIds.filter(id=>!hasImg(store.cards[id])));
+  const withCn=shuffle(archIds.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}));
+  const wordIds=padTo(withImg.concat(noImg).slice(0,15),15);   // 前15题：听音选词（优先有图）
+  const meanIds=padTo(withCn.slice(0,15),15);                  // 后15题：听音选意（需有中文释义，无图）
+  const ids=wordIds.concat(meanIds);
+  quizQMode=ids.map((id,i)=> i<15?'word':'mean');              // v315：前15 word，后15 mean
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
+  for(const k in meanOptCache)delete meanOptCache[k];
   quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
-  document.getElementById('quiz').classList.add('show');
+  const sw=document.getElementById('meanModeSwitch');if(sw)sw.style.display='none'; // 听音选意无图，隐藏切换
+  const qm=document.getElementById('quizMean');if(qm)qm.classList.add('no-img');
+  meanShowImg=false;
+  document.getElementById('quiz').classList.add('show'); // 首题为 word 模式
   // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
   const first=[ids[0],...quizPickOptions(ids[0])];
   let pending=first.length, started=false;
-  const begin=()=>{ if(started)return; started=true; renderQuiz(); };
+  const begin=()=>{ if(started)return; started=true; renderQuizDispatch(); };
   first.forEach(id=>{
     const c=store.cards[id];
     if(!c){ if(--pending<=0)begin(); return; }
@@ -4229,6 +4236,13 @@ function startArchReview(){
     },200);
   });
   setTimeout(begin, 4000);  // 兜底：最多等 4 秒，不等就直接开始
+}
+/* v315：按 quizQMode[quizIdx] 分发到「听音选词(#quiz)」或「听音选意(#quizMean)」，并切换面板显隐 */
+function renderQuizDispatch(){
+  const m=(quizQMode&&quizQMode[quizIdx])||'word';
+  const q=document.getElementById('quiz'), qm=document.getElementById('quizMean');
+  if(m==='mean'){ if(q)q.classList.remove('show'); if(qm)qm.classList.add('show'); renderQuizMean(); }
+  else { if(qm)qm.classList.remove('show'); if(q)q.classList.add('show'); renderQuiz(); }
 }
 function renderQuiz(){
   quizLock=false;
@@ -4348,6 +4362,11 @@ function quizAddWrong(id){
   save();
 }
 function quizNext(){
+  if(quizQMode && quizQMode.length){   // v315：复习归档混合队列（每题自带模式）优先
+    if(quizIdx<quizQueue.length-1){quizIdx++;renderQuizDispatch();}
+    else quizFinish();
+    return;
+  }
   if(quizMode==='blank'){
     if(quizIdx<quizQueue.length-1){quizIdx++;renderQuizBlank();}
     else quizFinish();
@@ -4376,7 +4395,7 @@ function closeQuiz(){
 /* ===== 听音选意思 · 看图听音选中文意思（听音选词对称变体） =====
    判定/状态机与听音选词对齐：答对只加星、不改记忆状态（纯检测）；答错进错题池、次日(Day2)起可答 */
 let quizMode='word';
-let meanShowImg=true;    // 听音选意思：题干是否显示大图（有图/无图切换）
+let meanShowImg=false;    // v315：听音选意（原听音选意思）不再显示大图，听发音选中文意思，图片为冗余
 const meanOptCache={};   // 同题中文干扰项缓存
 function meanPickOptions(targetId){
   if(meanOptCache[targetId])return meanOptCache[targetId];
@@ -4396,11 +4415,11 @@ function startPickMean(){
   const ids=buildQuizPool(c=>c.cn&&c.cn.trim()); // v303：复用抽词池，筛掉无中文释义的，并在池内统一补足到固定 30 题
   if(!ids.length){showToast('还没有可选意思的卡，先学几天');return;}
   for(const k in meanOptCache)delete meanOptCache[k];
-  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='mean';quizWrongIds=[];
+  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='mean';quizWrongIds=[];quizQMode=[];
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
-  const sw=document.getElementById('meanModeSwitch');if(sw){sw.classList.remove('no-img');sw.textContent='🖼 有图';}
-  meanShowImg=true;
-  const qm=document.getElementById('quizMean');if(qm)qm.classList.remove('no-img');
+  const sw=document.getElementById('meanModeSwitch');if(sw){sw.style.display='none';} // v315：听音选意无图，隐藏有图/无图切换
+  meanShowImg=false;   // v315：听音选意不再显示图片（听发音选中文意思，图片为冗余）
+  const qm=document.getElementById('quizMean');if(qm)qm.classList.add('no-img');
   document.getElementById('quizMean').classList.add('show');
   const first=quizQueue[0];let started=false;
   const begin=()=>{ if(started)return; started=true; renderQuizMean(); };
@@ -4528,7 +4547,7 @@ function blankPickOptions(targetId){
 function startSentenceBlank(){
   const ids=sentenceBlankIds();
   if(!ids.length){showToast('还没有可填空的卡，先学几天');return;}
-  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizLock=false;quizMode='blank';blankSlow=false;quizWrongIds=[];
+  quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizLock=false;quizMode='blank';blankSlow=false;quizWrongIds=[];quizQMode=[];
   const sb=document.getElementById('quizBlankSlow');if(sb)sb.classList.remove('on');
   document.getElementById('quizBlank').classList.add('show');
   renderQuizBlank();
@@ -5918,7 +5937,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v314';
+const APP_VER='v315';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

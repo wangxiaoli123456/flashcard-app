@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>复习页改版效果 · 对比原型</title>
+<style>
+:root{
+  --word:#4E342E;--text:#3D4757;--muted:#93A0B4;--good:#22B573;
+  --shadow:0 1px 2px rgba(23,43,77,.05),0 10px 28px -6px rgba(23,43,77,.10);
+  --radius:20px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#EEF3FA;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;color:var(--text);padding:0 0 40px}
+.wrap{max-width:430px;margin:0 auto;padding:0 12px}
+/* 顶部切换 */
+.topbar{position:sticky;top:0;z-index:20;background:rgba(238,243,250,.94);backdrop-filter:blur(10px);padding:10px 0 8px;margin-bottom:6px}
+.seg{display:flex;gap:6px;background:#E2E9F4;border-radius:14px;padding:4px}
+.seg button{flex:1;border:none;background:transparent;padding:10px;border-radius:11px;font-weight:700;font-size:14px;color:var(--muted);cursor:pointer;transition:all .2s}
+.seg button.on{background:#fff;color:#3D7BE8;box-shadow:0 2px 8px -2px rgba(23,43,77,.14)}
+/* 通用 */
+.btn{border:none;border-radius:50px;padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer;transition:transform .15s ease}
+.btn:active{transform:scale(.96)}
+.btn-blue{background:linear-gradient(180deg,#6DB4FF,#4493F2);color:#fff;box-shadow:0 6px 16px -4px rgba(68,147,242,.55),inset 0 1px 0 rgba(255,255,255,.30)}
+.btn-green{background:linear-gradient(180deg,#46D892,#1FAD69);color:#fff;box-shadow:0 6px 16px -4px rgba(31,173,105,.5),inset 0 1px 0 rgba(255,255,255,.30)}
+.btn-red{background:linear-gradient(180deg,#FF8A65,#F4511E);color:#fff;box-shadow:0 6px 16px -4px rgba(244,81,30,.45),inset 0 1px 0 rgba(255,255,255,.28)}
+.btn-orange{background:linear-gradient(180deg,#FFC16B,#FB8C00);color:#fff;box-shadow:0 6px 16px -4px rgba(251,140,0,.45),inset 0 1px 0 rgba(255,255,255,.30)}
+.btn-purple{background:linear-gradient(180deg,#C39DFF,#9F6BFF);color:#fff;box-shadow:0 6px 16px -4px rgba(159,107,255,.45),inset 0 1px 0 rgba(255,255,255,.28)}
+.btn-ghost{background:#EEF2F8;color:var(--text);box-shadow:inset 0 1px 2px rgba(23,43,77,.05)}
+.btn-sm{padding:6px 14px;font-size:12px;border-radius:30px}
+.btn-block{width:100%;padding:14px;font-size:16px}
+.card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px;border:1px solid rgba(23,43,77,.04)}
+.sub{font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.6}
+/* 池 */
+.pool{border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.7)}
+.pool::before{content:'';position:absolute;right:-34px;top:-34px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.55)}
+.pool h3{margin:0 0 4px;font-size:16px;display:flex;align-items:center;gap:8px;font-weight:800;position:relative}
+.pool .pnum{font-size:27px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.05}
+.pool .pbtn{position:absolute;top:14px;right:14px}
+.pool-wrong{background:linear-gradient(135deg,#FFF3EE,#FFE7DA)}
+.pool-new{background:linear-gradient(135deg,#FFFAF0,#FFEFDA)}
+.pool-hist{background:linear-gradient(135deg,#EFF6FF,#E3EFFF)}
+/* 分组标题 */
+.grp{display:flex;align-items:center;gap:8px;margin:18px 2px 10px;font-size:13px;font-weight:800;color:#6B7794}
+.grp::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#D8E2F0,transparent)}
+.grp .dot{width:6px;height:6px;border-radius:50%;background:#FF9B3D}
+.grp.play .dot{background:#9F6BFF}
+.grp em{font-style:normal;font-weight:600;font-size:11px;color:#A9B5C7}
+/* 新方案：主数字 */
+.bignum{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.15}
+.bignum small{font-size:12px;font-weight:700;color:#8A97AB;margin-left:3px}
+.mini{font-size:12px;color:#8A97AB;margin-top:2px}
+.mini b{color:#5A6B84}
+/* 规则折叠 */
+.rule{margin-top:8px;font-size:11.5px;color:#7C8AA0;background:rgba(255,255,255,.62);border-radius:10px;overflow:hidden}
+.rule .rt{padding:6px 10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none}
+.rule .rb{display:none;padding:0 10px 8px;line-height:1.65;border-top:1px dashed rgba(23,43,77,.08);padding-top:6px}
+.rule.open .rb{display:block}
+.rule .rt .ar{transition:transform .2s;display:inline-block}
+.rule.open .rt .ar{transform:rotate(90deg)}
+/* 未掌握 */
+.master{background:linear-gradient(135deg,#FFF6E8,#FFEFD6);border-radius:12px;padding:8px 12px;margin-top:10px}
+.master h4{margin:0;font-size:15px;flex:1}
+.note{font-size:11.5px;color:#8A97AB;line-height:1.7;background:#fff;border-radius:12px;padding:10px 12px;margin:0 0 12px;border:1px dashed #D8E2F0}
+.note b{color:#F4511E}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="seg">
+      <button id="tabOld" class="on" onclick="sw('old')">现在（改前）</button>
+      <button id="tabNew" onclick="sw('new')">新方案（改后）</button>
+    </div>
+  </div>
+
+  <!-- ============ 现在（改前） ============ -->
+  <div id="vOld">
+    <div class="note">⚠️ 这是<b>当前线上</b>的样子：主按钮在最底下、必做和加练混在一起、规则文字整段堆在卡片里、数字 27px。</div>
+
+    <div class="pool pool-new">
+      <div class="pool-toggle">
+        <h3><span class="arr">▶</span>🟠 ① 当日新词 <span style="font-size:12px;color:#C58A6A">最高优先级</span></h3>
+        <div><span class="pnum" style="color:#FF9B3D">12</span> <span style="font-size:12px;color:#999">张新词</span> <span style="color:#C9D2E0;font-size:12px">·</span> <span class="pnum" style="color:#5B7CFA">3</span> <span style="font-size:12px;color:#999">张待确认</span> <span style="font-size:12px;color:#2E9E5B;font-weight:700"></span> <span style="font-size:12px;color:#999">· 点「累计已确认」可回看</span></div>
+      </div>
+      <button class="btn btn-blue btn-sm pbtn">开始</button>
+    </div>
+
+    <div class="pool pool-wrong">
+      <div class="pool-toggle">
+        <h3><span class="arr">▶</span>🔴 ② 错题池</h3>
+        <div class="sub">不太会立即进池 · 连续3次「会」出池（进池当天不可答 · 首次会次日(Day2)起可答 · 之后每次隔1天）· 答错重置 · 满7天未出池自动转入未掌握队列 · 在池总数含今天刚进池、明天才到期的；今天可答仅含已到期</div>
+        <div><span class="pnum" style="color:#FF7043">18</span> <span style="font-size:12px;color:#999">张在池</span>　<span class="pnum" style="color:#FF7043">5</span> <span style="font-size:12px;color:#999">张今天可答 · 点数字查看</span></div>
+      </div>
+      <div style="position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;z-index:2">
+        <button class="btn btn-red btn-sm">开始</button>
+        <button class="btn btn-purple btn-sm">📥 生成错题音频</button>
+      </div>
+      <div class="master">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h4>🟠 未掌握队列</h4>
+          <span class="pnum" style="color:#FF9B3D">7</span><span style="font-size:11px;color:#999">张</span>
+          <span style="font-size:12px;color:#B8C4D6">▶</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pool pool-hist">
+      <div class="pool-toggle">
+        <h3><span class="arr">▶</span>🔵 ③ 历史老词 · 间隔阶梯</h3>
+        <div class="sub">L1-L6：3/7/14/30/60/90天 · 会升一级 · 不会降一级 · L1再错回错题池 · L6归档 · 在库总数含已归档；今天到期仅含到期的</div>
+        <div><span class="pnum" style="color:#78C2FF">156</span> <span style="font-size:12px;color:#999">张在库</span>　<span class="pnum" style="color:#78C2FF">21</span> <span style="font-size:12px;color:#999">张今天到期 · 点数字查看</span></div>
+      </div>
+      <button class="btn btn-blue btn-sm pbtn">开始</button>
+    </div>
+
+    <div class="pool" style="background:linear-gradient(135deg,#FFF1F5,#FFE4EC)">
+      <h3>🎵 听音选词（四选一）</h3>
+      <div class="sub">听发音选图片 · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
+      <button class="btn btn-red btn-sm pbtn">开始选词</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#FFF6E8,#FFEFD6)">
+      <h3>🧠 听音选意</h3>
+      <div class="sub">听发音选中文意思（无图） · 固定30题 · 答错自动进错题池，次日(Day2)起可答</div>
+      <button class="btn btn-orange btn-sm pbtn">开始选意思</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF)">
+      <h3>🗂️ 复习归档</h3>
+      <div class="sub">听发音选图片(15)+选意思(15) · 取已归档的词 · 纯练习，不改复习计划 · <span style="color:#9F6BFF;font-weight:700">378</span> 张已归档可复习</div>
+      <button class="btn btn-purple btn-sm pbtn">开始复习归档</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#F0F7FF,#E0EEFF)">
+      <h3>🎧 听音辨词</h3>
+      <div class="sub">听发音辨词 · 固定30题 · 纯练习，不改复习计划</div>
+      <button class="btn btn-blue btn-sm pbtn">开始辨词</button>
+    </div>
+
+    <button class="btn btn-green btn-block" style="margin-top:4px">🌙 一键开始今晚复习（按顺序）</button>
+
+    <div class="card" style="margin-top:14px">
+      <h2 style="font-size:16px;margin:0 0 8px">📄 今晚学习日报</h2>
+      <div style="font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #EEF2F8"><span>错题复习</span><b>5</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #EEF2F8"><span>当日新词</span><b>12</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>老词复习</span><b>21</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 新方案（改后） ============ -->
+  <div id="vNew" class="hide">
+    <div class="note">✅ 这是<b>建议方案</b>：①主按钮上移置顶 ②必做/加练分组 ③每池只留一个主数字、规则收进「ⓘ 规则」（可点开）④数字 27px→22px ⑤「听音辨词」改名「听音抢答」。</div>
+
+    <!-- 主按钮置顶 -->
+    <button class="btn btn-green btn-block" style="margin-bottom:4px">🌙 一键开始今晚复习（按顺序）</button>
+
+    <div class="grp"><span class="dot"></span>今晚必做 · 按顺序 <em>不做会断档</em></div>
+
+    <div class="pool pool-new">
+      <h3>🟠 ① 当日新词 <span style="font-size:12px;color:#C58A6A;font-weight:700">最高优先级</span></h3>
+      <div class="bignum" style="color:#FF9B3D">12<small>张待学</small></div>
+      <div class="mini"><b>3</b> 张待确认 · 累计已确认 <b>8</b></div>
+      <div class="rule" onclick="tg(this)"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">今晚挑的新词读三遍，三遍全对才确认；末遍错进错题池。确认后次日再答一次，通过即进老词 L1。</div></div>
+      <button class="btn btn-blue btn-sm pbtn">开始</button>
+    </div>
+
+    <div class="pool pool-wrong">
+      <h3>🔴 ② 错题池</h3>
+      <div class="bignum" style="color:#FF7043">5<small>张今天可答</small></div>
+      <div class="mini">在池共 <b>18</b> 张</div>
+      <div class="rule" onclick="tg(this)"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">不太会立即进池 · 连续 3 次「会」出池（进池当天不可答，首次会次日 Day2 起可答，之后每次隔 1 天）· 答错重置 · 满 7 天未出池自动转入未掌握队列。</div></div>
+      <div style="position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;z-index:2">
+        <button class="btn btn-red btn-sm">开始</button>
+        <button class="btn btn-purple btn-sm">📥 生成错题音频</button>
+      </div>
+      <div class="master">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h4>🟠 未掌握队列</h4>
+          <span style="font-size:18px;font-weight:900;color:#FF9B3D">7</span><span style="font-size:11px;color:#999">张</span>
+          <span style="font-size:12px;color:#B8C4D6">▶</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pool pool-hist">
+      <h3>🔵 ③ 历史老词 · 间隔阶梯</h3>
+      <div class="bignum" style="color:#3D7BE8">21<small>张今天到期</small></div>
+      <div class="mini">在库共 <b>156</b> 张</div>
+      <div class="rule" onclick="tg(this)"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">L1-L6：3/7/14/30/60/90 天 · 会升一级 · 不会降一级 · L1 再错回错题池 · L6 归档。</div></div>
+      <button class="btn btn-blue btn-sm pbtn">开始</button>
+    </div>
+
+    <div class="grp play"><span class="dot"></span>加练 · 不改进度 <em>随时可玩</em></div>
+
+    <div class="pool" style="background:linear-gradient(135deg,#FFF1F5,#FFE4EC)">
+      <h3>🎵 听音选词 <span style="font-size:12px;color:#B0708A;font-weight:700">四选一选图</span></h3>
+      <div class="sub" style="margin:0">听发音选图片 · 固定 30 题</div>
+      <button class="btn btn-red btn-sm pbtn">开始选词</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#FFF6E8,#FFEFD6)">
+      <h3>🧠 听音选意 <span style="font-size:12px;color:#C58A6A;font-weight:700">无图</span></h3>
+      <div class="sub" style="margin:0">听发音选中文意思 · 固定 30 题</div>
+      <button class="btn btn-orange btn-sm pbtn">开始选意思</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF)">
+      <h3>🗂️ 复习归档 <span style="font-size:12px;color:#9F6BFF;font-weight:700">378 张可复习</span></h3>
+      <div class="sub" style="margin:0">听音选词 15 + 听音选意 15 · 纯练习不改计划</div>
+      <button class="btn btn-purple btn-sm pbtn">开始复习归档</button>
+    </div>
+    <div class="pool" style="background:linear-gradient(135deg,#F0F7FF,#E0EEFF)">
+      <h3>🎧 听音抢答 <span style="font-size:12px;color:#4E88D8;font-weight:700">原名听音辨词</span></h3>
+      <div class="sub" style="margin:0">听发音辨词看卡片 · 固定 30 题 · 纯练习</div>
+      <button class="btn btn-blue btn-sm pbtn">开始抢答</button>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2 style="font-size:16px;margin:0 0 8px">📄 今晚学习日报</h2>
+      <div style="font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #EEF2F8"><span>错题复习</span><b>5</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #EEF2F8"><span>当日新词</span><b>12</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>老词复习</span><b>21</b></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function sw(v){
+  document.getElementById('vOld').classList.toggle('hide', v!=='old');
+  document.getElementById('vNew').classList.toggle('hide', v!=='new');
+  document.getElementById('tabOld').classList.toggle('on', v==='old');
+  document.getElementById('tabNew').classList.toggle('on', v==='new');
+  window.scrollTo(0,0);
+}
+function tg(el){ el.classList.toggle('open'); }
+</script>
+</body>
+</html>

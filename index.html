@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789024067000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789025475000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -588,18 +588,18 @@ window.addEventListener('unhandledrejection',function(e){});
             <div class="pool-toggle">
                 <h3>🟠 ① 当日新词 <span style="font-size:12px;color:#C58A6A;font-weight:700">最高优先级</span></h3>
                 <div class="bignum" style="color:#FF9B3D"><span id="cntNew" style="cursor:pointer" title="点击查看" onclick="viewNumCards('new')">0</span><small>张待学</small></div>
-                <div class="mini">待确认 <b><span id="cntConfirm" style="cursor:pointer" title="点击查看" onclick="viewNumCards('confirm')">0</span></b> 张<span id="cnfToday" style="color:#2E9E5B;font-weight:700;cursor:pointer" title="点击回看已确认记录" onclick="viewNumCards('confirm')"></span></div>
-                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">今晚挑的新词读三遍，三遍全对才算确认；末遍答错进错题池。确认后次日再答一次，通过即进入老词 L1。</div></div>
+                <div class="mini">待确认 <b><span id="cntConfirm" style="cursor:pointer" title="点击查看" onclick="viewNumCards('confirm')">0</span></b> 张<span id="cnfToday" style="color:#2E9E5B;font-weight:700;cursor:pointer" title="点击回看已确认记录" onclick="viewNumCards('confirm')"></span> · 点数字查看</div>
             </div>
+            <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">今晚挑的新词读三遍，三遍全对才算确认；末遍答错进错题池。确认后次日再答一次，通过即进入老词 L1。</div></div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('new')">开始</button>
         </div>
         <div class="pool pool-wrong" data-pool="wrong">
             <div class="pool-toggle">
                 <h3>🔴 ② 错题池</h3>
                 <div class="bignum" style="color:#FF7043"><span id="cntWrongDue" style="cursor:pointer" title="点击查看今天可答" onclick="viewNumCards('wrongDue')">0</span><small>张今天可答</small></div>
-                <div class="mini">在池共 <b><span id="cntWrong" style="cursor:pointer" title="点击查看全部在池" onclick="viewNumCards('wrongAll')">0</span></b> 张</div>
-                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">不太会立即进池 · 连续 3 次「会」出池（进池当天不可答，首次会次日 Day2 起可答，之后每次隔 1 天）· 答错重置 · 满 7 天未出池自动转入未掌握队列。</div></div>
+                <div class="mini">在池共 <b><span id="cntWrong" style="cursor:pointer" title="点击查看全部在池" onclick="viewNumCards('wrongAll')">0</span></b> 张 · 点数字查看</div>
             </div>
+            <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">不太会立即进池 · 连续 3 次「会」出池（进池当天不可答，首次会次日 Day2 起可答，之后每次隔 1 天）· 答错重置 · 满 7 天未出池自动转入未掌握队列。</div></div>
             <div style="position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;z-index:2">
               <button class="btn btn-red btn-sm" onclick="startPool('wrong')">开始</button>
               <button class="btn btn-purple btn-sm" id="genWrongAudioBtn" onclick="genWrongAudio()">📥 生成错题音频</button>
@@ -629,12 +629,12 @@ window.addEventListener('unhandledrejection',function(e){});
             <div class="pool-toggle">
                 <h3>🔵 ③ 历史老词 · 间隔阶梯</h3>
                 <div class="bignum" style="color:#3D7BE8"><span id="cntHist" style="cursor:pointer" title="点击查看今天到期" onclick="viewNumCards('histDue')">0</span><small>张今天到期</small></div>
-                <div class="mini">在库共 <b><span id="cntHistAll" style="cursor:pointer" title="点击查看全部在库" onclick="viewNumCards('histAll')">0</span></b> 张</div>
-                <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">L1-L6：3/7/14/30/60/90 天 · 会升一级 · 不会降一级 · L1 再错回错题池 · L6 归档。</div></div>
+                <div class="mini">在库共 <b><span id="cntHistAll" style="cursor:pointer" title="点击查看全部在库" onclick="viewNumCards('histAll')">0</span></b> 张 · 点数字查看</div>
             </div>
+            <div class="rule" onclick="this.classList.toggle('open')"><div class="rt"><span class="ar">▶</span>ⓘ 规则</div><div class="rb">L1-L6：3/7/14/30/60/90 天 · 会升一级 · 不会降一级 · L1 再错回错题池 · L6 归档。</div></div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('hist')">开始</button>
         </div>
-        <div class="grp play"><span class="dot"></span>加练 · 不改进度 <em>随时可玩</em></div>
+        <div class="grp play"><span class="dot"></span>加练 · 随时可玩 <em>可选，不做不断档</em></div>
         <div class="pool" style="background:linear-gradient(135deg,#FFF1F5,#FFE4EC);">
             <h3>🎵 听音选词 <span style="font-size:12px;color:#B0708A;font-weight:700">四选一选图</span></h3>
             <div class="sub">听发音选图片 · 固定 30 题 · 答错进错题池</div>
@@ -652,7 +652,7 @@ window.addEventListener('unhandledrejection',function(e){});
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#F0F7FF,#E0EEFF);">
             <h3>🎧 听音抢答 <span style="font-size:12px;color:#4E88D8;font-weight:700">原名听音辨词</span></h3>
-            <div class="sub">听发音辨词看卡片 · 固定 30 题 · 纯练习</div>
+            <div class="sub">听发音辨词看卡片 · 固定 30 题 · 答错进错题池</div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('listen')">开始抢答</button>
         </div>
         <div class="pool" style="background:linear-gradient(135deg,#EAFBF0,#D6F5E3);display:none">
@@ -5988,7 +5988,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v322';
+const APP_VER='v323';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

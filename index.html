@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789050977000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789051319000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3339,10 +3339,9 @@ function renderToday(){
   const ymKeys=Object.keys(groups).sort((a,b)=>a<b?1:-1); // 2026-09 → 2026-08 …
   if(!ymKeys.length)return;
   const curYM=t.slice(0,7);
-  const todayLabel=Number(t.slice(5,7))+'月'+Number(t.slice(8,10))+'日挑的';
   function todayDayFolder(label, ids2){
     const fold=document.createElement('div');
-    const dOpen=(label===todayLabel)||todayOpenDays.has(label); // 今天挑的那天默认展开
+    const dOpen=todayOpenDays.has(label); // v327：日期层一律默认收起（含今天挑的那天），展开过才记住
     fold.className='card fold fold-grid'+(dOpen?' open':''); // 默认收起，点标题展开
     fold.innerHTML=`<div class="fold-h"><div><span style="font-size:18px">📅</span> <span>${esc(label)}</span></div><div class="fold-meta"><span class="fold-n">${ids2.length}张</span><span class="fold-t">${dOpen?'▲':'▼'}</span></div></div><div class="fold-b"></div>`;
     const body=fold.querySelector('.fold-b');
@@ -6115,7 +6114,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v326';
+const APP_VER='v327';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

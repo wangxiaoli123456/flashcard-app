@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789018708000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789020362000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4171,11 +4171,15 @@ function quizPickOptions(targetId){
   if(quizOptCache[targetId])return quizOptCache[targetId];
   const tc=store.cards[targetId];
   const tg=new Set(tc.tags||[]);
-  // 有图优先；再按"不同主题"（无共同 tag）优先选干扰项
-  const all=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.en&&c.state!=='raw'&&id!==targetId;})
-    .sort((a,b)=>(hasImg(store.cards[b])?1:0)-(hasImg(store.cards[a])?1:0));
-  const diff=all.filter(id=>!(store.cards[id].tags||[]).some(x=>tg.has(x)));
-  const base=diff.length>=3?diff:all;
+  // v320：干扰项严格有图优先——先在"有图卡"里选不同主题的，不够再退有图同主题，最后才允许无图卡
+  const all=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.en&&c.state!=='raw'&&id!==targetId;});
+  const noOverlap=(id)=>!(store.cards[id].tags||[]).some(x=>tg.has(x));
+  const imgAll=all.filter(id=>hasImg(store.cards[id]));
+  const diffImg=imgAll.filter(noOverlap);
+  let base;
+  if(diffImg.length>=3) base=diffImg;
+  else if(imgAll.length>=3) base=imgAll;
+  else { const diff=all.filter(noOverlap); base=diff.length>=3?diff:all; }
   const res=shuffle(base).slice(0,3);
   quizOptCache[targetId]=res;
   return res;
@@ -4216,7 +4220,9 @@ function startArchReview(){
   const withImg=shuffle(archIds.filter(id=>hasImg(store.cards[id])));
   const noImg=shuffle(archIds.filter(id=>!hasImg(store.cards[id])));
   const withCn=shuffle(archIds.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}));
-  const wordIds=padTo(take(retry.concat(withImg,noImg),15),15);   // 前15题：听音选词（待巩固优先，图文皆可）
+  const rImg=retry.filter(id=>hasImg(store.cards[id]));
+  const rNo=retry.filter(id=>!hasImg(store.cards[id]));
+  const wordIds=padTo(take(rImg.concat(withImg,rNo,noImg),15),15);   // 前15题：听音选词必须全图片——待巩固有图→有图库→待巩固无图→无图，无图卡绝不插队到有图前
   const meanIds=padTo(take(retry.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}).concat(withCn),15),15); // 后15题：听音选意（待巩固带中文优先）
   const ids=wordIds.concat(meanIds);
   ids.forEach(id=>{ if(store.cards[id].archWrong){ store.cards[id].archWrong=false; markDirty(id,['archWrong']); } }); // 仅清除本局已抽中者
@@ -5957,7 +5963,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v319';
+const APP_VER='v320';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

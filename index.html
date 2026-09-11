@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789121249000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789121670000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -577,6 +577,16 @@ window.addEventListener('unhandledrejection',function(e){});
                 <button class="btn btn-blue" onclick="openPicker()">➕ 挑今天的新词</button>
                 <button class="btn btn-purple" onclick="startEar('all')">👂 磨耳朵（新词优先）</button>
                 <button class="btn btn-green" id="genEarAudioBtn" onclick="genEarAudio()">📥 生成磨耳朵音频</button>
+                <!-- v329：单独一个「新词音频」——只含当天挑的新词，磨耳朵那个词源完全不动 -->
+                <button class="btn btn-blue" id="genNewAudioBtn" onclick="genNewAudio()">📥 生成新词音频</button>
+            </div>
+            <div id="newAudioBox" style="display:none;margin-top:10px;padding:10px 12px;background:#EAF3FF;border-radius:12px;">
+                <div style="font-size:13px;color:#2E5D8A;margin-bottom:6px" id="newAudioInfo"></div>
+                <audio id="newAudioPlayer" controls style="width:100%"></audio>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                    <button class="btn btn-blue btn-sm" onclick="shareAudio('__newAudioUrl')" style="flex:1">📤 分享/存网盘</button>
+                    <button class="btn btn-ghost btn-sm" onclick="copyLink(window.__newAudioUrl)" style="flex:1">🔗 复制链接(跨设备)</button>
+                </div>
             </div>
             <div id="earAudioBox" style="display:none;margin-top:10px;padding:10px 12px;background:#E8F8F0;border-radius:12px;">
                 <div style="font-size:13px;color:#2E7D52;margin-bottom:6px" id="earAudioInfo"></div>
@@ -1614,7 +1624,7 @@ function ghAudioUrl(en, src){
 /* v309：同源音频库「已补齐词」清单（助手补完音频后由脚本自动生成，勿手改）。
    命中清单 = 该词云端预生成库里没有、但同源库里有 → 直接走同源库，
    不再先去云端库撞一次 400（否则每点一次发音都白等一次失败往返，表现为「停顿一两秒才出声」）。 */
-const GH_AUDIO_WORDS=['aunt','bumble bee','chair','close eyes','costume','deep breath','eighty','fifty','forty','friend','hundred','knock on the door','meet our friends','mermaid','ninety','seventy','shy','sixty','thirty','together','twenty'];
+const GH_AUDIO_WORDS=['Are you hungry?','Are you ready?','Bye bye','Can you make a happy face?','Good job!','Good morning!','Ha-ha','Happy birthday','Here I come.','Here you are.','How are you today?','How are you?','I','I am good.','I am great.','I can make a happy face.','I can wash my hair.','I have a pet.','I like driving','I like flying','I like riding','I like rowing','I love you.','I love...','I see you.','I\'m','I\'m so sleepy.','It\'s potty time.','Kids','Let\'s share.','Mommy','Nice to meet you.','No problem','No, thank you.','Not me!','Please.','See you later!','Thank you very much.','Thank you.','That is...','This is...','Where is baby?','Who are you?','a','a lot of','afternoon','ah','airplane','all day long','all the family','am','an','and','angry','another','apple','are','arm','arms','aunt','baby','baby bear','back','bad','bag','ball','balloon','banana','basketball','bat','bath','bean','bear','beautiful','bed','beep','belongs to','bend your knees','bicycle','big','bike','bird','black','blow bubbles','blue','boat','book','boy','bridge','broccoli','brother','brown','brush','brush teeth','bubble','bug','bumble bee','bump','bus','butterfly','buttons','buy','cake','cakes','can you find a circle','candy','cap','carrot','cat','caterpillar','chair','cheek','chest','chick','chicken','child','chin','clap','clap your hands','clean','clean and dirty','clean up','clever','climb','clock','close eyes','close your eyes','cloudy','coat','cold','color','comb','come again','come and play','come on','coming','cook','cookie','costume','cousin','cow','cowboy','crab','cry','cup','cupcake','dad','dance','daughter','deep blue sea','deep breath','delicious','diamond','dirty','do you like broccoli','do you like yogurt','doctor','dog','donkey','door','down','draw','drive','drum','duck','duckling','early in the morning','ears','easy','eat','eat up','eating','eight','eighty','elbows','elephant','empty','empty and full','enough','evening','every day','eyes','face','fake','fall down','family','farm','fart','fast','faster','fat','favorite','fear','feet','fifty','finger','fire','firetruck','fish','five','flap your arms','flower','flowers','flute','fly','follow me','food','foot','football','forty','four','four leaf clover','fox','friend','friends','frog','full','fun','funny','gallop','garlic','get dressed','ghost','gift','giraffe','girl','give','go','go away','go out','go to school','go to sleep','good','good evening','good idea','goodbye','grandma','grandpa','great','green','green light','grumpy','hair','haircut','hamburgers','hand','hands','happened','happy','happy Halloween','hard','hat','have lunch','head','hear','heart','hello','help','here','here\'s','hide and seek','high','high and low','honey','hop','horse','hose','house','hug','hundred','hungry','hurry up','i like red','i\'m so happy to see you','ice cream','ice cream cone','idea','in and out','interesting','is','it','it\'s','jack-o\'-lantern','jacket','jelly','juice','jump','jump rope','kick','kid','kiss','knees','knock','knock on the door','ladder','lap','laugh','leader','left','left and right','leg','legs','let\'s','let\'s make a rectangle','like','line up','lion','listen','listen to','little bell','little bicycle','little bus','little firetruck','little fish','long','look','look at','look at me','look outside','loud','love','low','make a circle','make bubbles','mama','mask','meet our friends','mermaid','mine','monkey','monster','moo','moon','more','morning','mosquito','mouse','mouth','move','move to the left','move to the right','much','mum','mum\'s','mushroom','music','my','my happy song','name','near and far','neck','need','neigh','neither','new','nice','nine','ninety','no','no way','noisy','nose','not','not so good','octopus','oh','oink','old','on','on and off','one','open','orange','ouch','outside','oval','over and under','over here','pants','papa','paper','pass the beanbag','pat','pat your back','paws','peanut butter','peek-a-boo','pencil case','pet','pick','pick up','pig','pigs','pink','pirate','pizza','plant','play','play with me','point','poo','pop bubbles','potato','potty','pout','pudding','pumpkin','purple','push','put on','put on our t-shirt','put on pajamas','put on your shoes','put things away','quack','quickly','quiet','rabbit','rain','rainy','raise your arms','read','read books','ready','rectangle','red','red is the color of an apple','red light','ride','right','ring my bell','roar','rock','rock-paper-scissors','roll over','rooster','round','round and round','run','running','sad','salad','sand','saw','say','say good night','say hello','say no','scared','scarf','schoolbag','scissors','scoop','seven','seventy','shape','share','shark','sharp','she','sheep','shoes','shoulders','shout','shrimp','shut','shy','sick','sing','sing along','sister','sit down','sit right down','six','sixty','ski','sky','sleep','slow','small','smell','smile','smoothie','snail','snake','snowman','snowy','so','so sorry','soccer player','sock','socks','song','sorry','soup','special','spicy','spider','spin around','spray the water','square','squirrel','stamp your feet','star','stars','steamed bun','stinky','stomach','stomp','stomp your feet','stop','stove','stretch up high','strong','sunny','superhero','supermarket','surprise','swim away','swim faster','tail','take a bath','take a bite','take a dive','take a nap','take a seat','tap','tasty','team','teeth','tell','ten','tent','thank you','the','there','thirty','three','throw','thump your chest','tiger','time','tired','toes','tofu','together','tomato','too','toothache','touch the ground','touch your head','touch your toes','towel','toy','train','tree','trick','trick or treat','truck','tuba','tummy','turn around','turn on','twenty','twirl','two','ugly','umbrella','up','up and down','very','very well','voice','wag your tail','wait','wake up','walk around the circle','walking','wall','want to play','warm','wash','water','wave','wave hello','we','weather','well','well done','wet','whale','what','what do you want for Christmas','what\'s','wheel','where is','white','who','whose','wiggle your ears','wiggle your fingers','will','witch','woman','woof','wow','wrists','write','yawn','yellow','yes','yes i do','yogurt','you','your','yucky','yum','yummy','yummy and yucky','zebra','zip up our jacket'];
 const GH_AUDIO_KEYS=new Set(GH_AUDIO_WORDS.map(b64en));
 function ghHas(en){ try{ return GH_AUDIO_KEYS.has(b64en((en||'').trim())); }catch(e){ return false; } }
 /* v325：miss 记录 = 「该词直连有道失败过」。命中则下次直连百度优先，省掉一次注定失败的往返。
@@ -3758,6 +3768,23 @@ async function genWrongAudio(){
     await genMergedAudio(words,'wrongAudioBox','wrongAudioInfo','wrongAudioPlayer','wrongAudioDl','__wrongAudioUrl');
   }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
   finally{if(btn){btn.disabled=false;btn.textContent='📥 生成错题音频';}}
+}
+/* v329：「新词音频」——词源只有当天挑的新词（store.today.ids），不碰磨耳朵的词源。
+   与磨耳朵音频的区别：磨耳朵 = 新词+复习+老词的混合大池（供反复听）；
+   新词音频 = 只今天这十来个新词，适合当晚集中听、或发给家人。 */
+async function genNewAudio(){
+  const btn=document.getElementById('genNewAudioBtn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ 生成中…';}
+  try{
+    const seen=new Set(), words=[];
+    (store.today.ids||[]).forEach(id=>{
+      const c=store.cards[id]; if(!c||!c.en)return;
+      const e=c.en.trim(); if(e&&!seen.has(e)){seen.add(e);words.push(e);}
+    });
+    if(!words.length){showToast('今天还没挑新词');return;}
+    await genMergedAudio(words,'newAudioBox','newAudioInfo','newAudioPlayer','newAudioDl','__newAudioUrl');
+  }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
+  finally{if(btn){btn.disabled=false;btn.textContent='📥 生成新词音频';}}
 }
 async function genEarAudio(){
   const btn=document.getElementById('genEarAudioBtn');
@@ -6117,7 +6144,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v328';
+const APP_VER='v329';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

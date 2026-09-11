@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789132137000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789135406000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3715,7 +3715,7 @@ function withTimeout(p,ms){
   });
 }
 // 收集到的 words（去重 en）→ 浏览器内拼接成一段 WAV：每个词读 3 遍 + 词间静音
-async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey){
+async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey,label){
   const box=document.getElementById(boxId), info=document.getElementById(infoId);
   ensureAudioCtx(); const ctx=audioCtx;
   if(!ctx){showToast('音频引擎不可用');return;}
@@ -3743,12 +3743,20 @@ async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey){
   if(!chunks.length){showToast('暂无可用的预生成音频，无法生成');return;}
   try{ info.textContent='⏳ 正在拼接 '+used.length+' 个音频…'; }catch(e){}
   const wav=floatsToWav(chunks,MERGE_RATE);
-  let url=URL.createObjectURL(wav), file='merged_'+Date.now()+'.wav';
+  /* v332：文件名带类型和日期。以前叫 merged_1757xxxxx.wav，存到百度网盘后是一串数字，
+     根本分不清哪天、是哪一类的。现在形如「新词音频_2026-09-11_2153.wav」，
+     带时间是为了同一天生成多次也不互相覆盖。 */
+  const d=new Date(), p2=n=>String(n).padStart(2,'0');
+  const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+p2(d.getMinutes());
+  const base=(label||'闪卡音频')+'_'+stamp;
+  let url=URL.createObjectURL(wav), file=base+'.wav';
+  // 注意括号：d.getMonth()+1 必须先算再拼接，否则会拼成「81月11日」
+  window[linkKey+'Title']=(label||'闪卡音频')+' '+(d.getMonth()+1)+'月'+d.getDate()+'日';
   // 登录云同步后上传到 flash-media/<uid>/merged/，拿到可跨设备复制的公开链接；未登录则仅本地下载
   if(sb&&sbUser){
     try{
       try{ info.textContent='⏳ 正在上传（跨设备链接）…'; }catch(e){}
-      const path=sbUser.id+'/merged/'+Date.now().toString(36)+'_'+words.length+'_'+Math.random().toString(36).slice(2,7)+'.wav';
+      const path=sbUser.id+'/merged/'+stamp+'_'+(label||'audio')+'_'+Math.random().toString(36).slice(2,7)+'.wav';
       // v330：上传也加超时 —— 网络差时上传挂住同样会一直停在「生成中」
       const {error}=await withTimeout(sb.storage.from('flash-media').upload(path,wav,{upsert:true,contentType:'audio/wav'}), 25000) || {};
       if(!error){const {data:{publicUrl}}=sb.storage.from('flash-media').getPublicUrl(path);if(publicUrl)url=publicUrl;}
@@ -3761,6 +3769,13 @@ async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey){
   const player=document.getElementById(playerId), dl=document.getElementById(dlId);
   player.src=url;
   info.textContent=`已生成 ${used.length} 个单词音频·每个读3遍（点击播放 / 下载，或复制链接到其他设备）${skipped.length?(' · 跳过'+skipped.length+'个暂无音频的词'):''}`;
+  // v332：把最终文件名显示出来 —— 存到网盘后就是这个名字，提前确认，免得在网盘里找不到
+  try{
+    const fn=document.createElement('div');
+    fn.style.cssText='margin-top:6px;font-size:12px;color:#6B7794;word-break:break-all';
+    fn.textContent='📄 文件名：'+file;
+    info.appendChild(fn);
+  }catch(e){}
   // v307：把跳过的词名列出来（可点复制），否则用户根本不知道缺的是哪些词
   if(skipped.length){
     try{ console.log('[磨耳朵] 暂无音频的词:',skipped.join(', ')); }catch(e){}
@@ -3781,7 +3796,7 @@ async function genWrongAudio(){
     const words=[];const seen=new Set();
     Object.keys(store.cards).forEach(id=>{const c=store.cards[id];if(c&&c.state==='wrong'&&!c.master&&c.en){const e=c.en.trim();if(e&&!seen.has(e)){seen.add(e);words.push(e);}}});
     if(!words.length){showToast('错题池是空的');return;}
-    await genMergedAudio(words,'wrongAudioBox','wrongAudioInfo','wrongAudioPlayer','wrongAudioDl','__wrongAudioUrl');
+    await genMergedAudio(words,'wrongAudioBox','wrongAudioInfo','wrongAudioPlayer','wrongAudioDl','__wrongAudioUrl','错题音频');
   }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
   finally{if(btn){btn.disabled=false;btn.textContent='📥 生成错题音频';}}
 }
@@ -3811,7 +3826,7 @@ async function genNewAudio(){
       showToast(other?('今日列表里还没有新词（现有 '+other+' 个是错题/复习词）'):'今天还没挑新词');
       return;
     }
-    await genMergedAudio(words,'newAudioBox','newAudioInfo','newAudioPlayer','newAudioDl','__newAudioUrl');
+    await genMergedAudio(words,'newAudioBox','newAudioInfo','newAudioPlayer','newAudioDl','__newAudioUrl','新词音频');
     // 被排除的非新词要说清楚，否则用户会以为「怎么少了几个」
     if(other){
       try{
@@ -3837,7 +3852,7 @@ async function genEarAudio(){
     ids.forEach(id=>{const c=store.cards[id];if(c&&c.en){const e=c.en.trim();if(e&&!seen.has(e)){seen.add(e);words.push(e);}}});
     if(!words.length){showToast('当前没有可磨耳朵的词');return;}
     if(fallback){showToast('今天没有新词/复习，已用全部卡片兜底生成');}
-    await genMergedAudio(words,'earAudioBox','earAudioInfo','earAudioPlayer','earAudioDl','__earAudioUrl');
+    await genMergedAudio(words,'earAudioBox','earAudioInfo','earAudioPlayer','earAudioDl','__earAudioUrl','磨耳朵音频');
   }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
   finally{if(btn){btn.disabled=false;btn.textContent='📥 生成磨耳朵音频';}}
 }
@@ -3853,9 +3868,10 @@ function copyEarAudioLink(){copyLink(window.__earAudioUrl);}
 async function shareAudio(linkKey){
   const file=window[linkKey+'File'];
   const url=window[linkKey];
+  const title=window[linkKey+'Title']||'闪卡音频';   // v332：分享标题带类型+日期，别再一律写成「磨耳朵」
   if(file && navigator.canShare && navigator.canShare({files:[file]})){
     try{
-      await navigator.share({files:[file], title:'闪卡磨耳朵音频', text:'闪卡磨耳朵音频'});
+      await navigator.share({files:[file], title:title, text:title});
       return;
     }catch(e){ if(e&&e.name==='AbortError') return; /* 其他异常走回退下载 */ }
   }
@@ -6184,7 +6200,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v331';
+const APP_VER='v332';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

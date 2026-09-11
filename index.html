@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789131307000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789132137000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3785,20 +3785,44 @@ async function genWrongAudio(){
   }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
   finally{if(btn){btn.disabled=false;btn.textContent='📥 生成错题音频';}}
 }
-/* v329：「新词音频」——词源只有当天挑的新词（store.today.ids），不碰磨耳朵的词源。
+/* v329：「新词音频」——只出当天挑的新词，不碰磨耳朵的词源。
    与磨耳朵音频的区别：磨耳朵 = 新词+复习+老词的混合大池（供反复听）；
-   新词音频 = 只今天这十来个新词，适合当晚集中听、或发给家人。 */
+   新词音频 = 只今天这十来个新词，适合当晚集中听、或发给家人。
+   v331：严格只算「真·新词」。今日列表里混着错题回炉词(wrong)和历史复习词(hist)，
+   以前一并取了，导致生成的并不是纯新词音频 —— 现在过滤掉，并把排除数量告诉用户。 */
 async function genNewAudio(){
   const btn=document.getElementById('genNewAudioBtn');
   if(btn){btn.disabled=true;btn.textContent='⏳ 生成中…';}
   try{
-    const seen=new Set(), words=[];
+    const seen=new Set(), words=[], kinds={wrong:0,hist:0,other:0};
+    let other=0;
     (store.today.ids||[]).forEach(id=>{
       const c=store.cards[id]; if(!c||!c.en)return;
+      const st=c.state||'';
+      // 新词 = new（新词期）或 raw（待补全）；错题/历史老词/已归档一律不算
+      if(c.arch || !(st==='new'||st==='raw')){
+        other++;
+        if(st==='wrong')kinds.wrong++; else if(st==='hist')kinds.hist++; else kinds.other++;
+        return;
+      }
       const e=c.en.trim(); if(e&&!seen.has(e)){seen.add(e);words.push(e);}
     });
-    if(!words.length){showToast('今天还没挑新词');return;}
+    if(!words.length){
+      showToast(other?('今日列表里还没有新词（现有 '+other+' 个是错题/复习词）'):'今天还没挑新词');
+      return;
+    }
     await genMergedAudio(words,'newAudioBox','newAudioInfo','newAudioPlayer','newAudioDl','__newAudioUrl');
+    // 被排除的非新词要说清楚，否则用户会以为「怎么少了几个」
+    if(other){
+      try{
+        const el=document.getElementById('newAudioInfo'), tip=document.createElement('div');
+        tip.style.cssText='margin-top:6px;font-size:12px;color:#6B7794;line-height:1.6';
+        const seg=[]; if(kinds.wrong)seg.push(kinds.wrong+' 个错题'); if(kinds.hist)seg.push(kinds.hist+' 个复习词');
+        tip.textContent='（'+other+' 个非新词未计入'+(seg.length?'：'+seg.join('、'):'')+'，本音频只含新词）';
+        el.appendChild(tip);
+      }catch(e){}
+    }
+    return;
   }catch(e){showToast('生成失败：'+((e&&e.message)||e));}
   finally{if(btn){btn.disabled=false;btn.textContent='📥 生成新词音频';}}
 }
@@ -6160,7 +6184,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v330';
+const APP_VER='v331';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

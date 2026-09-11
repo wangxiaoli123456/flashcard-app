@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789051319000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789121249000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1614,7 +1614,7 @@ function ghAudioUrl(en, src){
 /* v309：同源音频库「已补齐词」清单（助手补完音频后由脚本自动生成，勿手改）。
    命中清单 = 该词云端预生成库里没有、但同源库里有 → 直接走同源库，
    不再先去云端库撞一次 400（否则每点一次发音都白等一次失败往返，表现为「停顿一两秒才出声」）。 */
-const GH_AUDIO_WORDS=['aunt','bumble bee','close eyes','deep breath','eighty','fifty','forty','friend','hundred','mermaid','shy','together'];
+const GH_AUDIO_WORDS=['aunt','bumble bee','chair','close eyes','costume','deep breath','eighty','fifty','forty','friend','hundred','knock on the door','meet our friends','mermaid','ninety','seventy','shy','sixty','thirty','together','twenty'];
 const GH_AUDIO_KEYS=new Set(GH_AUDIO_WORDS.map(b64en));
 function ghHas(en){ try{ return GH_AUDIO_KEYS.has(b64en((en||'').trim())); }catch(e){ return false; } }
 /* v325：miss 记录 = 「该词直连有道失败过」。命中则下次直连百度优先，省掉一次注定失败的往返。
@@ -3681,6 +3681,7 @@ async function fetchWordAudioBuf(en){
       }
     }
   }catch(e){}
+  // v328：同源库和云端库都取不到字节 → 极少数遗漏词（见上）；这些词的发音由助手补进同源库。
   return null;
 }
 function resampleTo(arr,fromRate,toRate){
@@ -3739,7 +3740,9 @@ async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey){
     try{ console.log('[磨耳朵] 暂无音频的词:',skipped.join(', ')); }catch(e){}
     const tip=document.createElement('div');
     tip.style.cssText='margin-top:8px;font-size:13px;color:#8A6D3B;background:#FFF8E1;border:1px dashed #E6C200;border-radius:12px;padding:9px 12px;line-height:1.7;word-break:break-all;cursor:pointer;';
-    tip.innerHTML='⚠️ 这 '+skipped.length+' 个词暂无音频（点此复制，发给助手补真人发音包）：<b>'+skipped.map(esc).join('、')+'</b>';
+    /* v328：把「为什么跳过」说清楚，否则用户只看到一句「暂无音频」，以为是 App 坏了。
+       联网时这些词照样能点着听（走直连真人音），只是做不成离线音频包。 */
+    tip.innerHTML='⚠️ 这 '+skipped.length+' 个词本地还没有真人发音文件，暂时合不进音频包（<b>不影响日常点读</b>，联网点这些词照样有声音）：<br><b>'+skipped.map(esc).join('、')+'</b><br><span style="font-size:12px;color:#A08A5B">👆 点这里复制词表发给助手，补进发音库后即可合入</span>';
     tip.onclick=()=>{ try{ navigator.clipboard.writeText(skipped.join('\n')); showToast('已复制词列表，发给助手即可补音频'); }catch(e){ try{ showToast(skipped.join('、')); }catch(_){} } };
     info.appendChild(tip);
   }
@@ -6114,7 +6117,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v327';
+const APP_VER='v328';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789135406000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789191062000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -18,32 +18,16 @@
 })();
 </script>
     <script>
-/* 离线文件自动更新：每次打开联网比对 Supabase 上的最新版，发现新版本在顶部显示更新条，点击即用最新版重载（数据存 Supabase 不丢） */
-(function(){
-  try{
-    var FLASH_VER='20260909.1';
-    var UPD='https://bununhxkphvlvgvhanpk.supabase.co/storage/v1/object/public/flash-app/app/index.html';
-    function mount(ver,html){
-      if(document.getElementById('__upd_bar__'))return;
-      var b=document.createElement('div');b.id='__upd_bar__';
-      b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:99999;background:#3D7BE8;color:#fff;font-size:14px;text-align:center;padding:11px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)';
-      b.textContent='发现新版本 v'+ver+'，点击更新 ▲';
-      b.onclick=function(){try{var bl=new Blob([html],{type:'text/html'});var u=URL.createObjectURL(bl);location.replace(u);}catch(e){alert('自动更新失败，请重新从发送方获取最新文件');}};
-      (document.body||document.documentElement).appendChild(b);
-    }
-    function check(){
-      try{var _l=parseInt(localStorage.getItem('__upd_chk__')||'0',10);
-        if(_l&&Date.now()-_l<6*3600*1000)return;      // v301：6 小时内不重复拉 365KB 比对
-        localStorage.setItem('__upd_chk__',String(Date.now()));}catch(e){}
-      fetch(UPD+'?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
-        var m=t&&t.match(/var FLASH_VER='([^']+)'/);if(!m)return;var rv=m[1];
-        if(rv&&rv!==FLASH_VER)mount(rv,t);
-      }).catch(function(){});
-    }
-    if(document.readyState!=='loading'){setTimeout(check,800);}
-    else{document.addEventListener('DOMContentLoaded',function(){setTimeout(check,800);});}
-  }catch(e){}
-})();
+/* v333（重要修复）：删掉了这里一段「离线文件自动更新」的老逻辑。
+   它干的事是：拿本文件里写死的 FLASH_VER='20260908.1' 去比对 Supabase 云盘上
+   一份 2026-09-08 的旧 index.html（那份还停在 v300），一旦"不一样"就在顶部
+   弹蓝条「发现新版本 v20260908.1，点击更新 ▲」，点下去还会用 Blob 把那份
+   【v300 老页面】整个替换掉当前页面 —— 于是用户一点更新就退化回 v300，
+   丢掉此后 v301~v332 的全部功能（生成新词音频、626词真人发音库、分享文件名
+   带日期、两级日期折叠…），刷新回新版后过 6 小时又弹，无限循环。
+
+   现在更新只有一条通道：比对同目录 version.txt（即 deploy.sh 维护的 vNNN），
+   线上下发的新版也永远是"换个文件名指过去"，绝不再从云盘拉整页覆盖运行时。 */
 </script>
     <script>
 /* 屏蔽跨域第三方脚本的通用 Script error.（Safari 行为，不告知细节，不影响主功能） */
@@ -520,7 +504,29 @@ window.addEventListener('unhandledrejection',function(e){});
 </head>
 <body>
     <div id="errInfo" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#FF4444;color:#fff;padding:10px;font-size:13px;font-family:sans-serif;word-break:break-all;"></div>
+    <!-- 更新条：唯一的合法升级通道。只做"重新加载"，绝不替换运行时，
+         所以点它永远只会往新版本走，不可能退回老版本。 -->
     <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{if(window.__LATEST_VER__)sessionStorage.setItem('__upd_clicked__',window.__LATEST_VER__);}catch(e){}try{var u=location.href.split('#')[0].split('?')[0];location.replace(u+'?_r='+Date.now());}catch(e){location.reload(true);}">🔄 发现新版本，点此刷新</div>
+    <!-- v333 自我修复通道：如果发现"实际在跑的代码"比本页自带的旧（说明曾被云端整页覆盖过），
+         就自动切到 index.html 的当前版本继续跑并停掉旧运行时，从根上杜绝"越更新越旧"。 -->
+    <script id="self-heal">
+(function(){
+  try{
+    // 注意：这里刻意不写出 APP_VER 的完整字面量，否则会被部署脚本/版本自检误认成版本号
+    var myVer=(function(){try{var m=document.documentElement.innerHTML.match(new RegExp("APP_"+"VER='(v\\d+)'"));return m?m[1]:'';}catch(e){return '';}})();
+    var K='__APP_VER__';
+    var running=localStorage.getItem(K);
+    if(!myVer){ myVer=''; }
+    if(running&&myVer&&running!==myVer){
+      // 本页已经是"旧的"了：把控制权交回线上正式 index.html（带时间戳绕开缓存）
+      var u=location.href.split('#')[0].split('?')[0].replace(/[^/]*$/,'index.html');
+      var now=parseInt((running||'v0').replace(/^v/,''),10)||0;
+      var mine=parseInt((myVer||'v0').replace(/^v/,''),10)||0;
+      if(now>mine){ location.replace(u+'?_r='+Date.now()); return; }
+    }
+  }catch(e){}
+})();
+</script>
     <!-- 加载遮罩：避免闪白屏 -->
     <header>
         <h1>🔤 宝宝英语闪卡 <span id="verBadge" style="font-size:10px;font-weight:600;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:10px;vertical-align:middle;">v277</span></h1>
@@ -6105,6 +6111,9 @@ function importPackAudio(){
 
 function boot(){
   try{const v=document.getElementById('verBadge');if(v)v.textContent=APP_VER;}catch(e){}
+  // v333：登记"当前真正在跑的版本号"。若之后云端用旧整页覆盖了运行时，自愈通道
+  // 一看 running 比新页面旧，就会把控制权交回线上最新 index.html。
+  try{localStorage.setItem('__APP_VER__',APP_VER);}catch(e){}
   try{
     if(!store.deletedIds)store.deletedIds=[]; // 墓碑字段初始化
     const t=todayKey();
@@ -6200,7 +6209,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v332';
+const APP_VER='v334';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
@@ -6582,6 +6591,13 @@ function showUpdateBanner(){ var b=document.getElementById('updateBanner'); if(b
       if(!nv)return;                 // 空内容 → 不提示
       if(!/^v?[\d.]+$/.test(nv))return;  // 不是版本号（比如返回了 404 页面）→ 不提示
       if(nv===APP_VER)return;        // 已是最新
+      // v333 防退化保险：只对「更高版本」提示更新。线上万一被旧部署/缓存回退成
+      // 低版本（历史上 Supabase 云盘那份 v300 就这么干过），这里直接不理，
+      // 绝不再出现"点了更新反而退回老版本"。
+      var _n=function(x){x=String(x).replace(/^v/,'');var p=x.split('.');return (parseInt(p[0],10)||0)*10000+((parseInt(p[1],10)||0));};
+      var _cur=_n(APP_VER), _new=_n(nv);
+      try{ window.__UPD_DEBUG__={cur:APP_VER,newer:nv,curN:_cur,newN:_new,pass:_new>_cur}; }catch(e){}
+      if(!(_new>_cur))return;        // 不比当前新 → 不提示（含"看起来是新版数字但其实是老部署"的情况）
       try{ window.__LATEST_VER__=nv; }catch(e){}
       // v304 熔断：用户已点过更新条、刷新后仍不一致（如版本号漏改）→ 不再反复弹，杜绝"无限更新条"
       try{ if(sessionStorage.getItem('__upd_clicked__')===nv)return; }catch(e){}

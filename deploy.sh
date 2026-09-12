@@ -24,8 +24,15 @@ PYBIN=$(command -v python3 || command -v python3.11 || command -v python)
 import re, sys, time
 nxt = sys.argv[1]
 s = open('index.html', encoding='utf-8').read()
-s, n1 = re.subn(r"const APP_VER='v\d+';", "const APP_VER='%s';" % nxt, s)
+# 只认「行首是 const APP_VER='vNNN';」这一种形态，避免误伤 JS 里出现的
+# 字符串（例如自我修复通道里 new RegExp("const APP_VER='(v\d+)'") —— 用旧写法
+# 会被这里连正则一起替换成字面量，把自愈功能改坏）。
+pat = re.compile(r"(?m)^(\s*)const APP_VER='v\d+';")
+s, n1 = pat.subn(lambda m: "%sconst APP_VER='%s';" % (m.group(1), nxt), s)
 s, n2 = re.subn(r"var REL='\d+';", "var REL='%d000';" % int(time.time()), s)
+if n1 != 1:
+    print('❌ APP_VER 应且只应替换 1 处，实际 %d 处，已中止（避免改坏文件）' % n1)
+    sys.exit(1)
 open('index.html', 'w', encoding='utf-8').write(s)
 print('  APP_VER 替换 %d 处，REL 替换 %d 处' % (n1, n2))
 PY

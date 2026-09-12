@@ -114,21 +114,32 @@ def git_push(msg):
     return 'FAILED'
 
 
+def pull_reported():
+    """从云端读取 App 上报的缺词清单（无需任何 key，公开可读）"""
+    uid = 'cacd1a4b-ed34-4b60-b57e-7cf82f596aea'
+    url = (SB + '/storage/v1/object/public/flash-media/' + uid + '/missing/missing.json')
+    try:
+        d = json.loads(get(url, timeout=20).decode('utf-8'))
+        return d.get('words', []) or []
+    except Exception as e:
+        print('（读取云端上报失败：%s）' % e)
+        return []
+
+
 def main():
     if '--words' in sys.argv:
         i = sys.argv.index('--words')
         words = [w.strip() for w in sys.argv[i + 1:] if w.strip()]
     else:
-        # 从仓库维护的词表 + App 上报取词；这里是通用常见词兜底扫描
-        words = []
-        if os.path.exists('/tmp/need.json'):
-            words = json.load(open('/tmp/need.json'))
+        # 默认：拉取 App 自动上报的缺词清单
+        words = pull_reported()
+        print('云端上报的词: %d 个' % len(words))
 
     have = local_words()
     need = [w for w in words if w and w not in have]
     print('已有发音: %d 词 | 待补: %d 词' % (len(have), len(need)))
     if not need:
-        print('✅ 没有缺发音的词')
+        print('✅ 没有缺发音的词，无需操作')
         return
 
     ok, fail = [], []

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789215364000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789217038000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3737,19 +3737,43 @@ function reportMissingWords(words){
     if(!words||!words.length)return;
     const payload=JSON.stringify({at:new Date().toISOString(),ver:(typeof APP_VER!=='undefined'?APP_VER:''),words:words});
     /* v336：双通道上报。
-       ① 云端 Supabase（原有，兜底）
-       ② 额外写一份到同源目录 missing/ 下 —— 助手那边的守护进程会直接读这个位置。
-          说明：浏览器没有仓库写权限，所以这里只"投递需求"，真正的补音频由助手侧执行。
-          但这样用户完全不用再手动复制词表发人，闭环自动完成。 */
+       ① 云端 Supabase（助手无需 key 即可读取）② 本地留一份备查。
+       说明：浏览器没有仓库写权限，这里只"投递需求"，真正的补音频由助手侧执行。
+       用户完全不用再手动复制词表发人，闭环自动完成。 */
     try{
       if(sb&&sbUser&&sb.storage){
         const path=sbUser.id+'/missing/missing.json';
-        sb.storage.from('flash-media').upload(path,new Blob([payload],{type:'application/json'}),{upsert:true,contentType:'application/json'}).catch(()=>{});
+        const bucket=sb.storage.from('flash-media');
+        /* v338：合并上报，别覆盖。
+           以前每次上报都整份覆盖，导致"上一次报的词还没被补齐，就被这一次冲掉"，
+           用户就会陷入"明明报了却始终没补"的死循环。现在先读旧的、去重合并再写回。 */
+        const mergeAndUpload=async(incoming)=>{
+          let old=[];
+          try{
+            const pub=bucket.getPublicUrl(path);
+            if(pub&&pub.data&&pub.data.publicUrl){
+              const r=await fetch(pub.data.publicUrl,{cache:'no-store'});
+              if(r.ok){
+                const j=await r.json();
+                if(j&&Array.isArray(j.words))old=j.words;
+              }
+            }
+          }catch(e){}
+          const set=new Set(); const all=[];
+          for(const w of old.concat(incoming)){
+            const k=String(w||'').trim();
+            if(k&&!set.has(k.toLowerCase())){set.add(k.toLowerCase());all.push(k);}
+          }
+          if(all.length>400)all.splice(0,all.length-400); // 只保留最近 400 个，防止无限膨胀
+          const body=JSON.stringify({uid:sbUser.id,at:new Date().toISOString(),ver:(typeof APP_VER!=='undefined'?APP_VER:''),words:all});
+          await bucket.upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+          console.log('[缺词上报] 已合并上报，累计 '+all.length+' 个：'+all.join(', '));
+        };
+        mergeAndUpload(words).catch(()=>{});
       }
     }catch(e){}
-    // 本地留一份，供需要时排查（不代表已补音频）
     try{ localStorage.setItem('__missing_words__',payload); }catch(e){}
-    console.log('[缺词上报] '+words.length+' 个：'+words.join(', '));
+    console.log('[缺词上报] 本次 '+words.length+' 个：'+words.join(', '));
   }catch(e){}
 }
 async function genMergedAudio(words,boxId,infoId,playerId,dlId,linkKey,label){
@@ -6249,7 +6273,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v338';
+const APP_VER='v339';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

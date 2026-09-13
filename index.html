@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789217141000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789269490000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1911,7 +1911,7 @@ function playYoudao(en,slow){
     playUrlChain(words.length>=5
       ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), directBaiduUrl(en), sbAudioUrl(en,'baidu')]
       : [ghAudioUrl(en,'youdao'), ghAudioUrl(en,'baidu'), directYoudaoUrl(en), directBaiduUrl(en), sbAudioUrl(en,'youdao')],
-      {en:en,slow:slow,noTts:earn,waitMs:1400});
+      {en:en,slow:slow,noTts:earn,waitMs:Math.max(2000, words.length*500+1200)}); // v341：长句给足缓冲时间
     return;
   }
   if(words.length>=5){ playBaidu(en,slow,earn); return; }
@@ -1941,9 +1941,21 @@ function playUrlChain(urls,opt){
   const list=(urls||[]).filter(Boolean);
   const wc=String(en).trim().split(/\s+/).filter(Boolean).length;
   const waitMs=opt.waitMs||Math.max(2600, wc*450+1400);
+  // v341：长句音频文件更大、缓冲更慢。旧逻辑超时即切下一个源并 stopAllLive 掐掉旧元素，
+  // 结果「还差一点就缓冲完」的长句被反复掐断，永远播不出来 —— 表现为「长句子读不出来」。
+  // 现在：超时时若该元素仍在缓冲（readyState 1~3 / 正在联网），额外宽限 graceMs 再切。
+  const graceMs=Math.max(1200, wc*300+900);
   let i=0, played=false, timer=null, done=false;
   const stop=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
-  const finish=(ok)=>{ if(done)return; done=true; try{ if(opt.onDone)opt.onDone(ok); }catch(e){} };
+  const finish=(ok)=>{ if(done)return; done=true;
+    try{ if(opt.onDone)opt.onDone(ok); }catch(e){}
+    if(_spkCb&&_spkCbGen===gen){
+      const cb=_spkCb; _spkCb=null;
+      if(ok){ try{cb(true);}catch(e){} return; }
+      // v341：失败后还有浏览器 TTS 兜底，等 1.5s 看它到底有没有说，别误报「没出声」
+      setTimeout(()=>{ let sp=false; try{ sp=!!(window.speechSynthesis&&speechSynthesis.speaking); }catch(e){}
+        try{ cb(sp); }catch(e){} },1500);
+    } };
   const attempt=()=>{
     if(played||gen!==_audioGen)return;
     if(i>=list.length){ stop(); finish(false); if(!noTts&&gen===_audioGen)tts(en,slow); return; }
@@ -1954,11 +1966,65 @@ function playUrlChain(urls,opt){
     a.src=url; a.playbackRate=rate;
     a.onended=()=>{ try{_liveAudios.delete(a);}catch(e){} };
     a.onplaying=()=>{ played=true; stop(); finish(true); };
+    a.ontimeupdate=()=>{ if(!played&&a.currentTime>0){ played=true; stop(); finish(true); } }; // v341：部分 iOS 不触发 onplaying，改以进度推进判成功
     a.onerror=()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,80); };
     const p=a.play(); if(p&&p.catch)p.catch(()=>{ if(gen===_audioGen&&!played) setTimeout(attempt,360); });
-    stop(); timer=setTimeout(()=>{ if(gen===_audioGen&&!played) attempt(); }, waitMs);
+    const tick=()=>{
+      if(gen!==_audioGen||played||done)return;
+      const buffering=(a.readyState>0&&a.readyState<4)||a.networkState===2; // 正在加载，别掐
+      if(buffering&&(a._grace||0)<3){ a._grace=(a._grace||0)+1; stop(); timer=setTimeout(tick,graceMs); return; }
+      attempt();
+    };
+    stop(); timer=setTimeout(tick, waitMs);
   };
   attempt();
+}
+/* v341：带结果回调的发音入口。听音抢答需要知道「到底出没出声」——
+   没出声就在卡片上给出「👆 点一下播放」，用户一点即手势内播放，必出声，不再干等。 */
+let _spkCb=null,_spkCbGen=-1,_spkFailT=null;
+function playSpk(en,cb){
+  unlockAudio();
+  _audioGen++;
+  const g=_audioGen;
+  clearTimeout(_spkFailT);
+  _spkCb=(typeof cb==='function')?cb:null; _spkCbGen=g;
+  // 内嵌真人音：不走 playUrlChain（无回执），直接播并立即报成功
+  try{
+    const emb=audioForEn(en);
+    if(emb){ try{ curAudio=playSrc(emb,1); }catch(e){}
+      const c1=_spkCb; _spkCb=null; if(c1)setTimeout(()=>{try{c1(true);}catch(e){}},200);
+      return; }
+  }catch(e){}
+  playYoudao(en);
+  // 保险：7 秒后强制回报（顺带看 TTS 兜底是否仍在说），避免回调丢失导致 UI 一直卡在「等待」
+  _spkFailT=setTimeout(()=>{
+    if(_spkCb&&_spkCbGen===g){
+      let sp=false; try{ sp=!!(window.speechSynthesis&&speechSynthesis.speaking); }catch(e){}
+      const c2=_spkCb; _spkCb=null; try{ c2(sp); }catch(e){}
+    }
+  },7000);
+}
+/* v341：队列预加载。听音抢答轮到某题时才去抓音频，长句缓冲来不及；提前把后面几题的音频预热，
+   轮到即播，彻底消除「长句读不出来」。同源库/直连源都只做 GET 缓存，不进 _liveAudios（不会被 stopAllLive 误掐）。 */
+const _preloadEls=[];
+function preloadSpk(en){
+  try{
+    if(!en)return;
+    if(_preloadEls.length>12)_preloadEls.splice(0,_preloadEls.length-12);
+    const w=(en||'').trim(); const wl=w.split(/\s+/).filter(Boolean).length;
+    const urls=ghHas(w)
+      ? (wl>=5?[ghAudioUrl(w,'baidu'),ghAudioUrl(w,'youdao')]:[ghAudioUrl(w,'youdao'),ghAudioUrl(w,'baidu')])
+      : (wl>=5?[directBaiduUrl(w),directYoudaoUrl(w)]:[directYoudaoUrl(w),directBaiduUrl(w)]);
+    urls.slice(0,1).forEach(u=>{ if(!u)return; const a=new Audio(); a.preload='auto'; a.src=u; a.load&&a.load(); _preloadEls.push(a); });
+  }catch(e){}
+}
+function preloadQueue(n){
+  try{
+    for(let k=1;k<=(n||4);k++){
+      const it=fsQueue[fsIdx+k]; if(!it)continue;
+      const c=store.cards[it.id]; if(c)preloadSpk(c.en);
+    }
+  }catch(e){}
 }
 /* 百度整句TTS：任意长度英文稳定200，audio元素直连播放不受CORS限制，真人级连贯；极端不通时浏览器TTS兜底 */
 function playBaidu(en,slow,noTts){
@@ -1970,7 +2036,8 @@ function playBaidu(en,slow,noTts){
   const list = ghHas(en)
     ? [ghAudioUrl(en,'baidu'), ghAudioUrl(en,'youdao'), directBaiduUrl(en), sbAudioUrl((en||'').trim(),'baidu')]
     : [directBaiduUrl(en), ghAudioUrl(en,'baidu'), directYoudaoUrl(en), sbAudioUrl((en||'').trim(),'baidu'), sbAudioUrl((en||'').trim(),'youdao')];
-  playUrlChain(list,{en:en,slow:slow,noTts:noTts||earn,waitMs:1600});
+  playUrlChain(list,{en:en,slow:slow,noTts:noTts||earn,
+    waitMs:Math.max(2600,((en||'').trim().split(/\s+/).filter(Boolean).length)*500+1600)}); // v341：长句给足缓冲时间
 }
 /* 长句兜底：无离线音频且>=5词时，按<=4词切片依次播有道，避免撞500静音 */
 async function playChunks(words,slow){
@@ -4068,8 +4135,9 @@ function startPool(pool){
     }
     if(!ids.length){showToast('还没有可听音辨词的卡，先学几天');return;}
     ids=padTo(ids.slice(0,30),30); // v303：固定 30 题（原先补不满就少出；今日词超 30 也不多出）
-    listenGood=0;listenBad=0;listenWrongIds=[];
+    listenGood=0;listenBad=0;listenWrongIds=[];listenAnswers=new Map();listenLock=false; // v341：每局清空幂等表
     fsQueue=ids.map(id=>({id,pool:'listen'}));
+    setTimeout(function(){ try{ preloadQueue(5); }catch(e){} },600); // v341：开局先预热后 5 题音频，长句不再临时抓
   }
   fsIdx=0;fsPool=pool;fsOpen(fsQueue,fsIdx);
 }
@@ -4248,6 +4316,7 @@ let listenWrongIds=[];   // 听力抢答复局答错的卡 id 列表，供结算
 let lastReviewQueueIds=[]; let lastReviewDate=''; // v296：B 记录今晚复习过的词（按当天），供复习磨耳朵复读
 let newRep={}; // v211：新词三遍临时状态（整体循环3次，错1次打回后跳过后续轮份）
 function renderFs(){
+  clearTimeout(_lspkTimer); // v341：切题即作废上一题挂起的自动发音，避免「上一题的音在新题上冒出来」
   const it=fsQueue[fsIdx];if(!it){closeFs();return;}
   const c=store.cards[it.id];
   if(!c){ // v304：队列中残留已删除的卡 → 跳过前进，绝不崩（原实现后续 c.en 直接 TypeError）
@@ -4285,7 +4354,13 @@ function renderFs(){
     // 听音抢答：先不显示图和词，只播发音
     img.innerHTML='<span class="noimg" style="font-size:80px">🎧</span>';
     word.innerHTML='<span style="color:#B8C4D6;font-size:18px;font-family:-apple-system,sans-serif">🔊 听一听 · 辨词</span>';
-    setTimeout(()=>{const cur=fsQueue[fsIdx];if(cur===it)speakCurrent();},400);
+    // v341：自动播改成「带回执」的 playSpk —— 出声了就顺手预热后面几题；
+    // 没出声（长句缓冲慢/网络差/iOS 限制）就给一个「点一下播放」按钮，用户一点即手势内播放，必出声。
+    clearTimeout(_lspkTimer);
+    _lspkTimer=setTimeout(()=>{
+      const cur=fsQueue[fsIdx]; if(!cur||cur.id!==it.id)return;
+      listenSpeak(it.id);
+    },350);
   }else{
     img.innerHTML='<span class="noimg" style="font-size:42px;color:#B8C4D6">⏳</span>';
     cardImgUrl(c,u=>{
@@ -4387,9 +4462,42 @@ function revealListen(){
     <button class="btn btn-ghost" style="flex:1" onclick="listenAnswer(0)">❌ 不会</button>
     <button class="btn btn-green" style="flex:1" onclick="listenAnswer(1)">✅ 答对了</button></div>`;
 }
+/* v341：听音抢答的发音统一入口（带回执）。长句缓冲慢是「读不出来」的主因：
+   ① 提前预加载队列后面几题；② 出声了给正常 UI；③ 没出声给「点一下播放」，手势内必出声。 */
+let _lspkTimer=null;
+const LISTEN_FAIL_HTML='<button class="btn btn-blue" style="width:100%" onclick="listenReplay()">🔊 点一下播放发音</button>'
+  +'<button class="btn btn-ghost" style="width:100%" onclick="revealListen()">👀 看答案</button>';
+function listenSpeak(id){
+  const c=store.cards[id]; if(!c||!c.en)return;
+  playSpk(c.en,function(ok){
+    const cur=fsQueue[fsIdx]; if(!cur||cur.id!==id)return; // 已切题，回调作废
+    if(ok){ preloadQueue(4); return; }
+    const w=document.getElementById('fsWord');
+    if(w&&!fsRevealed) w.innerHTML='<span style="color:#FF9F45;font-size:18px;font-family:-apple-system,sans-serif">👆 点一下才能出声</span>';
+    const b=document.getElementById('fsBottom');
+    if(b&&!fsRevealed) b.innerHTML=LISTEN_FAIL_HTML;
+  });
+}
+function listenReplay(){
+  const it=fsQueue[fsIdx]; if(!it)return;
+  const c=store.cards[it.id]; if(!c)return;
+  const w=document.getElementById('fsWord');
+  if(w&&!fsRevealed) w.innerHTML='<span style="color:#B8C4D6;font-size:18px;font-family:-apple-system,sans-serif">🔊 听一听 · 辨词</span>';
+  listenSpeak(it.id); // 用户手势内调用 → iOS 必放行
+}
 /* 听力抢答：答对不改状态（纯练习）；答「不会」进错题池，次日(Day2)起才能答（与听音选词规则一致） */
 function listenAnswer(good){
+  if(listenLock)return; // v341：防连点——没有锁时一次手抖点两下就会计两题，结算从 30 变 31
   const it=fsQueue[fsIdx];if(!it)return;
+  const idx=fsIdx;
+  listenLock=true; setTimeout(function(){listenLock=false;},320);
+  // v341：幂等计分。同一题重答（回退看答案后改主意）先把上一次的计数撤销，绝不累加两次
+  if(listenAnswers.has(idx)){
+    const pv=listenAnswers.get(idx);
+    if(pv===1)listenGood=Math.max(0,listenGood-1);
+    else{ listenBad=Math.max(0,listenBad-1); const wi=listenWrongIds.indexOf(it.id); if(wi>=0)listenWrongIds.splice(wi,1); }
+  }
+  listenAnswers.set(idx,good?1:0);
   const t=todayKey();
   const log=store.log[t]||(store.log[t]={});
   log.lRev=(log.lRev||0)+1;
@@ -4409,9 +4517,13 @@ function listenAnswer(good){
   if(fsIdx<fsQueue.length-1){fsIdx++;renderFs();}
   else{
     // 结束弹结算弹窗（统一模板，答不会的已进错题池）
-    const total=listenGood+listenBad;
-    showQuizResult({title:`本次完成：${total}题`,total,good:listenGood,bad:listenBad,wrongTip:null,wrongIds:listenWrongIds});
-    listenGood=0;listenBad=0;
+    // v341：题数恒等于队列长度（30），不再用 listenGood+listenBad 累加值——
+    // 累加一旦被重复点击污染就会显示 31 题；这里顺手把 bad 校正为 total-good，保证三数自洽。
+    const total=fsQueue.length;
+    const good2=Math.min(listenGood,total);
+    const bad2=Math.max(0,total-good2);
+    showQuizResult({title:`本次完成：${total}题`,total,good:good2,bad:bad2,wrongTip:null,wrongIds:listenWrongIds});
+    listenGood=0;listenBad=0;listenAnswers=new Map();
     closeFs();
   }
 }
@@ -4420,6 +4532,8 @@ function listenAnswer(good){
    答错：复用现有错题池规则（state=wrong · 次日Day2起才能答） */
 let quizQueue=[],quizIdx=0,quizGood=0,quizBad=0,quizWrongCnt=0,quizSlow=false,quizLock=false;
 let quizWrongIds=[];   // 本局答错的卡 id 列表，供结算弹窗展示
+let listenLock=false;  // v341：听音抢答防连点锁
+let listenAnswers=new Map(); // v341：题序 idx -> 1对/0错，用于幂等计分（防 30 题结算成 31 题）
 const QUIZ_TOTAL=30;
 function hasImg(c){return !!(c&&(c.imgUrl||c.imgKey));}
 // v303：把题序补足到固定长度；合格卡不足时循环复用已有题（每轮重新打散，避免相邻/周期性重复）
@@ -5380,7 +5494,7 @@ function fsMove(d){
   }
   fsIdx=(fsIdx+d+fsQueue.length)%fsQueue.length;renderFs();
 }
-function closeFs(){stopEarTimer();_audioGen++;try{stopAudio();}catch(e){}if(fsPool==='ear')releaseWakeLock();earPlaying=false;if(fsTheme)fsTheme=null;document.getElementById('fs').classList.remove('show');}
+function closeFs(){stopEarTimer();clearTimeout(_lspkTimer);_audioGen++;try{stopAudio();}catch(e){}if(fsPool==='ear')releaseWakeLock();earPlaying=false;if(fsTheme)fsTheme=null;document.getElementById('fs').classList.remove('show');}
 function exitFs(){closeFs();}
 function speakCurrent(){const it=fsQueue[fsIdx];if(it)playWord(it.id);}
 /* 滑动翻页：在openFs时动态绑定到flip-wrap，避免被onclick吞掉 */
@@ -6273,7 +6387,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v340';
+const APP_VER='v341';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

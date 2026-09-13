@@ -53,6 +53,29 @@ def get(url, timeout=25):
     return urllib.request.urlopen(req, timeout=timeout).read()
 
 
+def slim(path):
+    """v341：新抓的音频一律转 单声道22050Hz/48kbps 并裁掉首尾静音。
+    有道/百度原始返回常是 768kbps（1.4 秒的词要 132KB），加载慢正是「长句读不出来」的直接原因。"""
+    import subprocess, shutil
+    try:
+        tmp = path + '.slim.mp3'
+        af = ("silenceremove=start_periods=1:start_duration=0.03:start_threshold=-45dB:detection=peak,"
+              "areverse,"
+              "silenceremove=start_periods=1:start_duration=0.03:start_threshold=-45dB:detection=peak,"
+              "areverse")
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', path, '-af', af,
+                        '-ac', '1', '-ar', '22050', '-b:a', '48k', tmp],
+                       capture_output=True, timeout=60)
+        if os.path.exists(tmp) and os.path.getsize(tmp) > 400:
+            shutil.move(tmp, path)
+            return True
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    except Exception:
+        pass
+    return False
+
+
 def fetch_one(w):
     if not w:
         return (w, None)
@@ -68,6 +91,7 @@ def fetch_one(w):
             d = get(url)
             if len(d) > 400:
                 open(f, 'wb').write(d)
+                slim(f)   # v341：落盘即瘦身，保持与既有音频库一致的体积
                 return (w, src)
         except Exception:
             pass

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789269490000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789297538000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -297,6 +297,10 @@ window.addEventListener('unhandledrejection',function(e){});
         .quiz-opt img{width:100%;height:100%;object-fit:contain;display:block;}
         .quiz-opt .noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:56px;background:linear-gradient(135deg,#F2F7FF,#E8F0FB);}
         .quiz-opt .quiz-txt{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#4A6C9B;text-align:center;padding:8px;box-sizing:border-box;background:linear-gradient(135deg,#F2F7FF,#E8F0FB);}
+        /* v342：复习归档前15题「听音选单词」= 纯文字四选一（不再用图）。
+           格子改矮一点让单词横向铺得开，字号按视口自适应并用 word-break 兜住 elephant 这类长词。 */
+        .quiz-grid.text-mode .quiz-opt{aspect-ratio:1.55/1;border-radius:18px;}
+        .quiz-grid.text-mode .quiz-opt .quiz-txt{font-size:clamp(16px,4.8vw,30px);line-height:1.2;letter-spacing:.2px;word-break:break-word;}
         /* ===== 听音选意思 · 看图听音选中文意思（听音选词对称变体） ===== */
         .quiz-mean-img{width:200px;height:200px;border-radius:24px;overflow:hidden;background:#fff;box-shadow:0 10px 24px -8px rgba(23,43,77,.22);display:flex;align-items:center;justify-content:center;}
         .quiz-mean-img img{width:100%;height:100%;object-fit:contain;display:block;}
@@ -4534,6 +4538,8 @@ let quizQueue=[],quizIdx=0,quizGood=0,quizBad=0,quizWrongCnt=0,quizSlow=false,qu
 let quizWrongIds=[];   // 本局答错的卡 id 列表，供结算弹窗展示
 let listenLock=false;  // v341：听音抢答防连点锁
 let listenAnswers=new Map(); // v341：题序 idx -> 1对/0错，用于幂等计分（防 30 题结算成 31 题）
+let quizArchiveText=false;   // v342：本局是「复习归档」→ 前15题改用单词文字选项
+let quizTextMode=false;      // v342：当前这一题是否渲染为文字选项（由 renderQuizDispatch 按题序算）
 const QUIZ_TOTAL=30;
 function hasImg(c){return !!(c&&(c.imgUrl||c.imgKey));}
 // v303：把题序补足到固定长度；合格卡不足时循环复用已有题（每轮重新打散，避免相邻/周期性重复）
@@ -4592,11 +4598,75 @@ function quizPickOptions(targetId){
   quizOptCache[targetId]=res;
   return res;
 }
+/* ===== v342：文字四选一的「易混淆」干扰项挑选 =====
+   图片模式下干扰项要【不同主题】（图得一眼能分辨：猫 vs 汽车）；
+   文字模式必须反过来 —— 答案是 cat 却配 banana/bus/apple 的话，孩子看首字母就能选对，等于没练。
+   所以这里专门给"长得像"的词打分：同首字母、长度相近、只差 1~2 个字母、同结尾。 */
+const quizTextOptCache={};
+function _editDist(a,b){
+  const m=a.length,n=b.length;
+  if(m>40||n>40)return 9;
+  const prev=new Array(n+1),cur=new Array(n+1);
+  for(let j=0;j<=n;j++)prev[j]=j;
+  for(let i=1;i<=m;i++){
+    cur[0]=i;
+    for(let j=1;j<=n;j++)
+      cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));
+    for(let j=0;j<=n;j++)prev[j]=cur[j];
+  }
+  return prev[n];
+}
+function quizPickOptionsText(targetId){
+  if(quizTextOptCache[targetId])return quizTextOptCache[targetId];
+  const tc=store.cards[targetId];
+  const ten=String((tc&&tc.en)||'').trim().toLowerCase();
+  if(!ten){ quizTextOptCache[targetId]=[]; return []; }
+  // 候选：有英文的卡，排除自己，且英文去重（避免两个选项长得一模一样）
+  const seen=new Set([ten]); const cands=[];
+  const keys=Object.keys(store.cards);
+  const poolIds = keys.length>1200 ? shuffle(keys.slice()).slice(0,1200) : keys;
+  poolIds.forEach(id=>{
+    if(id===targetId)return;
+    const c=store.cards[id]; const en=String((c&&c.en)||'').trim();
+    if(!en)return;
+    const k=en.toLowerCase();
+    if(seen.has(k))return;
+    seen.add(k); cands.push({id,en,k});
+  });
+  const score=(x)=>{
+    const a=ten,b=x.k;
+    if(a===b)return -100;
+    const ed=_editDist(a,b);
+    // 每个字母几乎都对不上 → 毫无混淆价值，直接 0 分淘汰。
+    // （旧版只看「长度相近」就给 3 分，导致 ship 配出 cot/bat 这种除了长度像、字母毫无关系的干扰项，
+    //   跟真正相似的 sheep 抢名额，反而把相似度稀释掉了）
+    if(ed>=Math.max(a.length,b.length)-1)return 0;
+    let s=0;
+    if(a[0]===b[0])s+=4;                                   // 同首字母 → 必须看第二个字母才选得对
+    if(Math.abs(a.length-b.length)<=2)s+=1;                // 长度相近只做加分，不再单独撑起入选
+    if(ed===1)s+=6; else if(ed===2)s+=4; else if(ed===3)s+=2; // 差 1~2 个字母最容易看错
+    if(a.length>3&&b.length>3&&a.slice(-2)===b.slice(-2))s+=2; // 同结尾：cat/bat、cake/make
+    return s;
+  };
+  // 分级降级：① 只在「高相似」池里挑（每道题都保证有混淆价值）→ ② 不足 3 个才放宽到「有一丁点相似」
+  // → ③ 仍不够（词库太小）才随机兜底。避免大词库时把弱相似词混进高分榜，稀释训练强度。
+  const scored=cands.map(x=>({x,s:score(x)})).filter(o=>o.s>0).sort((p,q)=>q.s-p.s);
+  const hi=scored.filter(o=>o.s>=4);
+  const use=hi.length>=3?hi:scored;
+  const top=use.slice(0,Math.max(3,Math.min(9,use.length)));
+  const res=shuffle(top.map(o=>o.x)).slice(0,3).map(o=>o.id);
+  if(res.length<3){
+    shuffle(cands).forEach(o=>{ if(res.length<3&&!res.includes(o.id))res.push(o.id); });
+  }
+  quizTextOptCache[targetId]=res;
+  return res;
+}
 function startPickWord(){
   const ids=buildQuizPool();
   if(!ids.length){showToast('还没有可听的卡，先学几天');return;}
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
   quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];quizQMode=[];
+  quizArchiveText=false;quizTextMode=false; // v342：普通听音选词保持四选一图片
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
   document.getElementById('quiz').classList.add('show');
   // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
@@ -4625,41 +4695,35 @@ function startArchReview(){
   const retry=archIds.filter(id=>store.cards[id].archWrong);
   const used=new Set();
   const take=(pool,n)=>{const out=[];for(const id of pool){if(used.has(id))continue;if(out.length>=n)break;out.push(id);used.add(id);}return out;};
-  const withImg=shuffle(archIds.filter(id=>hasImg(store.cards[id])));
-  const noImg=shuffle(archIds.filter(id=>!hasImg(store.cards[id])));
   const withCn=shuffle(archIds.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}));
-  const rImg=retry.filter(id=>hasImg(store.cards[id]));
-  const rNo=retry.filter(id=>!hasImg(store.cards[id]));
-  const wordIds=padTo(take(rImg.concat(withImg,rNo,noImg),15),15);   // 前15题：听音选词必须全图片——待巩固有图→有图库→待巩固无图→无图，无图卡绝不插队到有图前
-  const meanIds=padTo(take(retry.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}).concat(withCn),15),15); // 后15题：听音选意（待巩固带中文优先）
+  // v342：前15题改纯文字选项 → 组卷不再挑有没有图。旧逻辑按「有图优先」排 4 个顺位，
+  // 结果没图的归档词几乎轮不到复习；有图不够 15 个时又把无图卡硬塞进来导致题目忽然没图。
+  // 现在只保留「上次答错的待巩固词优先」，其余一律随机，全部归档词平等参与。
+  const wordIds=padTo(take(retry.concat(shuffle(archIds)),15),15);
+  const meanIds=padTo(take(retry.filter(id=>{const c=store.cards[id];return c.cn&&c.cn.trim();}).concat(withCn),15),15); // 后15题：听音选意（待巩固带中文优先，不变）
   const ids=wordIds.concat(meanIds);
   ids.forEach(id=>{ if(store.cards[id].archWrong){ store.cards[id].archWrong=false; markDirty(id,['archWrong']); } }); // 仅清除本局已抽中者
   quizQMode=ids.map((id,i)=> i<15?'word':'mean');              // v315：前15 word，后15 mean
+  quizArchiveText=true;                                        // v342：本局前15题走单词文字选项
   for(const k in quizOptCache)delete quizOptCache[k];  // 新一局清空干扰项缓存
   for(const k in meanOptCache)delete meanOptCache[k];
+  for(const k in quizTextOptCache)delete quizTextOptCache[k];  // v342：文字干扰项同样按局清空
   quizQueue=ids;quizIdx=0;quizGood=0;quizBad=0;quizWrongCnt=0;quizSlow=false;quizLock=false;quizMode='word';quizWrongIds=[];
   const sb=document.getElementById('quizSlowBtn');if(sb)sb.classList.remove('on');
   const sw=document.getElementById('meanModeSwitch');if(sw)sw.style.display='none'; // 听音选意无图，隐藏切换
   const qm=document.getElementById('quizMean');if(qm)qm.classList.add('no-img');
   meanShowImg=false;
   document.getElementById('quiz').classList.add('show');
-  // 首题预加载：先把首题 4 张图在后台下载好，全部就绪再渲染，避免首图边答边卡
-  const first=[ids[0],...quizPickOptions(ids[0])];
-  let pending=first.length, started=false;
-  const begin=()=>{ if(started)return; started=true; renderQuizDispatch(); };
-  first.forEach(id=>{
-    const c=store.cards[id];
-    if(!c){ if(--pending<=0)begin(); return; }
-    cardImgUrl(c,u=>{
-      if(u){ const im=new Image(); im.onload=()=>{ if(--pending<=0)begin(); }; im.onerror=()=>{ if(--pending<=0)begin(); }; im.src=u; }
-      else { if(--pending<=0)begin(); }
-    },200);
-  });
-  setTimeout(begin, 4000);  // 兜底：最多等 4 秒，不等就直接开始
+  // v342：前15题已是纯文字选项，没有图要下载 → 无需再等首图上齐，点开即刻开答
+  // （旧逻辑要先把首题 4 张图拉下来才渲染，最坏要干等 4 秒）
+  quizTextMode=quizArchiveText;   // 首题必定是 word 模式
+  renderQuizDispatch();
 }
 /* v315：按 quizQMode[quizIdx] 分发到「听音选词(#quiz)」或「听音选意(#quizMean)」，并切换面板显隐 */
 function renderQuizDispatch(){
   const m=(quizQMode&&quizQMode[quizIdx])||'word';
+  // v342：只有「复习归档」的前15题（word）渲染成单词文字；后15题听音选意保持原样不变
+  quizTextMode=(!!quizArchiveText && m==='word');
   const q=document.getElementById('quiz'), qm=document.getElementById('quizMean');
   if(m==='mean'){ if(q)q.classList.remove('show'); if(qm)qm.classList.add('show'); renderQuizMean(); }
   else { if(qm)qm.classList.remove('show'); if(q)q.classList.add('show'); renderQuiz(); }
@@ -4671,9 +4735,11 @@ function renderQuiz(){
   document.getElementById('quizProg').textContent=`${quizIdx+1}/${quizQueue.length}`;
   const star=document.getElementById('quizStar');star.textContent='⭐ '+quizGood;
   document.getElementById('quizWord').textContent='';
-  const opts=quizPickOptions(it);
+  const textMode=!!quizTextMode;   // v342：复习归档前15题 = 纯单词四选一
+  const opts=textMode?quizPickOptionsText(it):quizPickOptions(it);
   const grid=document.getElementById('quizGrid');
   grid.innerHTML='';
+  grid.classList.toggle('text-mode',textMode);
   const all=[{id:it,ok:true},...opts.map(o=>({id:o,ok:false}))];
   shuffle(all).forEach(o=>{
     const d=document.createElement('div');
@@ -4681,9 +4747,10 @@ function renderQuiz(){
     d.dataset.id=o.id;d.dataset.ok=o.ok?'1':'0';
     const c2=store.cards[o.id];
     const showText=(txt)=>{d.innerHTML='';const sp=document.createElement('span');sp.className='quiz-txt';sp.textContent=txt||'?';d.appendChild(sp);};
-    d.innerHTML='<span class="noimg">🖼</span>';
     d.onclick=()=>quizChoose(o.id,o.ok,d);
     grid.appendChild(d); // 先挂到DOM：保证 cardImgUrl 同步回调时 d.isConnected=true（否则同步路径被 isConnected 守卫提前 return，图片永不写入 → 一直显示占位相框）
+    if(textMode){ showText(c2&&c2.en); return; } // v342：文字模式不碰图片，秒出
+    d.innerHTML='<span class="noimg">🖼</span>';
     cardImgUrl(c2,u=>{
       if(!d.isConnected)return;
       if(!u)return showText(c2.en);
@@ -4696,7 +4763,7 @@ function renderQuiz(){
   quizSpeak();
   // 预取下一题图片：翻到下一题前先把那题 4 张图在后台下载好（走同域缓存，命中即秒出），
   // 避免边答边加载、图片卡几下才出来（尤其归档图为历史批量生成、单张较大）。
-  preloadQuizNext();
+  if(!textMode)preloadQuizNext();   // v342：文字模式没有图可预热
 }
 function preloadQuizNext(){
   const nxt=quizQueue[quizIdx+1];
@@ -6387,7 +6454,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v341';
+const APP_VER='v342';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

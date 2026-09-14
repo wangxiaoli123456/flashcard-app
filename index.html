@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789351260000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789352298000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3544,27 +3544,6 @@ async function saveEdit(){
 /* ===== 当日新词 ===== */
 let todayOpenMonths=new Set(); // v326：新词页展开过的「月份」文件夹（当月默认展开，往月收起）
 let todayOpenDays=new Set();   // v326：新词页展开过的「某日挑的」文件夹（今天挑的那天默认展开）
-/* v346：清出今日队列里「已经不再需要学的」卡。
-   背景：store.today.ids 旧设计是"只增不减的台账"，8-18 起一路攒到 231 张，
-   其中 209 张早已毕业成老词、22 张已进错题池 —— 它们既不该显示在「当日新词」，
-   也不该被听音抢答按「今日挑的词」规则强制塞进前 30 题（那会让抢答混进一堆老词）。
-   规则：state 已不是 new、或已进入次日确认的，一律移出队列。卡本身照旧留在词库里，不受影响。 */
-function pruneTodayIds(){
-  try{
-    const ids=store.today.ids||[];
-    const keep=ids.filter(id=>{
-      const c=store.cards[id];
-      return c && c.state==='new' && !c.confirm;
-    });
-    if(keep.length!==ids.length){
-      const removed=ids.length-keep.length;
-      store.today.ids=keep;
-      console.log('[今日队列] 清出已学完的 '+removed+' 张，剩 '+keep.length+' 张');
-      return true;
-    }
-  }catch(e){}
-  return false;
-}
 function renderToday(){
   const t=todayKey();
   if(store.today.date!==t){
@@ -3580,12 +3559,10 @@ function renderToday(){
     save();
   }
   document.getElementById('todayTitle').textContent='📅 当日新词 · '+t;
-  // v346：先把队列里已学完的卡清出去，再做统计与渲染
-  if(pruneTodayIds())save();
-  // 今日待学张数（清完之后统计的才是真实待学数）
+  // 总计挑入 / 今天加入
   const todayPicked=(store.today.ids||[]).filter(id=>{const c=store.cards[id];return c&&c.pickDate===t;}).length;
   const totalPicked=(store.today.ids||[]).length;
-  document.getElementById('todaySub').textContent=totalPicked?`今日待学 ${totalPicked} 张 · 今天加入 ${todayPicked} 张`:'今天还没有挑新词';
+  document.getElementById('todaySub').textContent=`总计挑入 ${totalPicked} 张 · 今天加入 ${todayPicked} 张`;
   const grid=document.getElementById('todayGrid');grid.innerHTML='';
   const ids=store.today.ids||[];
   const emptyEl=document.getElementById('todayEmpty');
@@ -3700,15 +3677,7 @@ function setPickSrc(s){pickSrc=s;
   renderPicker();
 }
 function openPicker(){
-  /* v346：默认勾选只保留「真正还没学的新词」。
-     旧实现 picked=[...store.today.ids] 会把队列里所有历史卡全部勾上 ——
-     today.ids 是只增不减的台账，攒了 200+ 张之后，用户一打开这个页面
-     就看到「总计挑入 231 张」，误以为自己上传错了。
-     已学完（hist）/已被打回（wrong）/待确认的卡，本来就不该再显示为「被选中」。 */
-  picked=(store.today.ids||[]).filter(id=>{
-    const c=store.cards[id];
-    return c&&c.state==='new'&&!c.confirm;
-  });
+  picked=[...store.today.ids]||[];
   pickerPage=1;
   const s=document.getElementById('pickSearch');if(s)s.value='';  // 每次打开清空搜索框
   renderPicker();
@@ -3774,9 +3743,7 @@ function renderPicker(){
   const addCnt=picked.filter(id=>!oldIds.has(id)).length; // 本次新勾的数量
   const todayNewCnt=(store.today.ids||[]).filter(id=>{const c=store.cards[id];return c&&c.pickDate===todayKey();}).length;
   document.getElementById('pickN').textContent=addCnt;
-  // v346：只显示「今天要学多少张」。原来的「总计挑入 N 张」是历史累计台账（只增不减），
-  // 越攒越大且与用户当下关心的事无关，容易误读成「我是不是选错了」。
-  document.getElementById('pickCount').textContent=`今日待学 ${todayCnt} 张${addCnt?` · 本次新选 ${addCnt} 张`:''}`;
+  document.getElementById('pickCount').textContent=`总计挑入 ${todayCnt} 张 · 今天加入 ${todayNewCnt} 张（本次新选${addCnt}）`;
   // 分页条（>50 张时显示）
   if(pages>1){
     const bar=document.createElement('div');
@@ -4302,13 +4269,9 @@ function startPool(pool){
     fsQueue=ids.map(id=>({id,pool:'egg'}));
   }
   if(pool==='listen'){
-    // 今日挑的词：只取「还在学的新词」，并按挑入日期倒序——今天挑的 > 昨天挑的 > …，
+    // 今日挑的词：全部纳入（不管 state/confirm）；并按挑入日期倒序——今天挑的 > 昨天挑的 > …，
     // 保证最近挑的词排在前面、必进前 30（同日内部随机）
-    // v346：旧注释写「不管 state/confirm」全部纳入，导致 today.ids 攒下的历史老词
-    // 每局都被强塞进前 30 题，抢答混进一堆早就会了的词。现在只认 state==='new'。
-    const base=[...(store.today.ids||[])].filter(id=>{
-      const c=store.cards[id]; return c&&c.en&&c.state==='new'&&!c.confirm;
-    }).sort((a,b)=>{
+    const base=[...(store.today.ids||[])].sort((a,b)=>{
       const ca=store.cards[a],cb=store.cards[b];
       const da=(ca&&ca.pickDate)||'';const db=(cb&&cb.pickDate)||'';
       if(da!==db) return db.localeCompare(da);
@@ -6657,7 +6620,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v346';
+const APP_VER='v347';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

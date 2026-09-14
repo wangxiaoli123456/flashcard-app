@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789352298000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789353002000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3559,10 +3559,17 @@ function renderToday(){
     save();
   }
   document.getElementById('todayTitle').textContent='📅 当日新词 · '+t;
-  // 总计挑入 / 今天加入
+  // v348：队列是只增不减的历史台账，「总计挑入 240 张」没有意义且容易被误读成"我是不是传错了"。
+  // 改成用户真正关心的三个数：今天从素材库传了几张、其中今天挑入几张、队列里还剩几张待学。
+  const todayBatchName=currentBatch();
+  const todayUploaded=Object.keys(store.cards).filter(id=>{
+    const c=store.cards[id];
+    return c&&((c.batch||'')===todayBatchName||c.created===t);
+  }).length;
+  const stillNew=(store.today.ids||[]).filter(id=>{const c=store.cards[id];return c&&c.state==='new'&&!c.confirm;}).length;
   const todayPicked=(store.today.ids||[]).filter(id=>{const c=store.cards[id];return c&&c.pickDate===t;}).length;
-  const totalPicked=(store.today.ids||[]).length;
-  document.getElementById('todaySub').textContent=`总计挑入 ${totalPicked} 张 · 今天加入 ${todayPicked} 张`;
+  document.getElementById('todaySub').textContent=
+    `今天上传 ${todayUploaded} 张 · 今天挑入 ${todayPicked} 张 · 待学 ${stillNew} 张`;
   const grid=document.getElementById('todayGrid');grid.innerHTML='';
   const ids=store.today.ids||[];
   const emptyEl=document.getElementById('todayEmpty');
@@ -3677,7 +3684,18 @@ function setPickSrc(s){pickSrc=s;
   renderPicker();
 }
 function openPicker(){
-  picked=[...store.today.ids]||[];
+  /* v348：默认勾选 = 今天上传批次里「还没加入今日」的卡。
+     语义：这个页面是「把今天传进来的图挑成今天要学的新词」，
+     所以默认就把今天这批全部勾上，点「今天加入」即可，不用一个个点。
+     已加入今日队列的卡不在列表里（无变化），历史批次的卡也不在列表里。 */
+  const tb=currentBatch();
+  picked=Object.keys(store.cards).filter(id=>{
+    const c=store.cards[id];
+    if(!c||c.src!==pickSrc||c.arch)return false;
+    if((c.batch||'')!==tb && c.created!==todayKey())return false;
+    if(!c.state||c.state==='raw'||!c.en)return false;
+    return true;
+  });
   pickerPage=1;
   const s=document.getElementById('pickSearch');if(s)s.value='';  // 每次打开清空搜索框
   renderPicker();
@@ -3693,11 +3711,25 @@ function renderPicker(){
   const todayIds=new Set(store.today.ids||[]);
   // 搜索关键词（不区分大小写、支持英文单词/中文释义模糊匹配）
   const kw=String((document.getElementById('pickSearch')||{}).value||'').trim().toLowerCase();
+  /* v348：挑选列表只显示「今天在素材库上传的那一批」。
+     素材库上传时会按日期建批次（currentBatch() → 如「9月14日」），
+     「今天上传了几张」= 「今天上传的卡有几张」。
+     历史批次（8月18日、小小优趣Phase* 等）是旧库存，不该出现在这个列表里 ——
+     以前这里只按 src 过滤，会把所有没归档的卡都列出来（几百张），
+     用户无法分辨哪张是今天传的，误以为系统把历史词也当成了今天的新词。
+     注意：已在今日队列里的卡也要显示（打「已加入」标记），否则用户传完挑完再点进来
+     会看到空列表，以为图丢了。 */
+  const todayBatch=currentBatch();
+  const isTodayUpload=id=>{
+    const c=store.cards[id];
+    // 判据用 batch 或 created：批次名允许用户手动改（如「9月14日」→「动物」），created 不会变
+    return (c.batch||'')===todayBatch || c.created===todayKey();
+  };
   const ids=Object.keys(store.cards).filter(id=>{
     const c=store.cards[id];
     if(c.src!==pickSrc||!c.state||c.state==='raw'||!c.en)return false;
     if(c.arch)return false;            // 已归档词库（如小小优趣Phase*）不进挑选列表，避免被误挑为当日新词
-    if(todayIds.has(id))return false; // 已在今日新词里的卡不再显示
+    if(!isTodayUpload(id))return false; // v348：只认今天上传的那一批
     if(kw){
       const hay=((c.en||'')+' '+(c.cn||'')+' '+(c.phone||'')+' '+(c.ex||'')).toLowerCase();
       if(!hay.includes(kw))return false;
@@ -3728,22 +3760,36 @@ function renderPicker(){
     // 关键词高亮（在 en 上）
     const enHtml=kw?esc(c.en).replace(new RegExp('('+kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<b style="color:#FF7043;background:#FFF3E0;padding:0 2px;border-radius:4px">$1</b>'):esc(c.en);
     d.innerHTML=`<span class="ck">✓</span><div class="th">🖼</div><div class="pw">${enHtml}</div>`;
+    // v348：已在今日队列里的卡打「已加入」角标（点击可取消勾选=不重复加入）
+    if(todayIds.has(id)){
+      const b=document.createElement('span');
+      b.textContent='已加入';
+      b.style.cssText='position:absolute;top:6px;right:6px;font-size:10px;font-weight:700;color:#2E7D4F;background:#E8F7EC;border-radius:8px;padding:2px 7px;pointer-events:none';
+      d.style.position='relative';
+      d.appendChild(b);
+    }
     cardImgUrl(c,u=>{if(u){const th=d.querySelector('.th');if(th){th.innerHTML='';const im=document.createElement('img');im.src=u;th.appendChild(im);}}},200);
     d.onclick=()=>{if(picked.includes(id))picked=picked.filter(x=>x!==id);else picked.push(id);renderPicker();};
     grid.appendChild(d);
   });
   if(!ids.length){
     const empty=document.createElement('div');
-    empty.style.cssText='grid-column:1/-1;text-align:center;color:#9AA8C0;padding:30px 10px;font-size:14px';
-    empty.textContent=kw?`没有找到包含「${kw}」的卡片，换个词试试？`:'这个闪卡组还没卡片';
+    empty.style.cssText='grid-column:1/-1;text-align:center;color:#9AA8C0;padding:30px 10px;font-size:14px;line-height:1.7';
+    empty.innerHTML=kw
+      ?`没有找到包含「${kw}」的卡片，换个词试试？`
+      :`今天（${esc(currentBatch())}）还没往素材库传图<br><span style="color:#B6C2D6">先去「素材库」传图片，传完再回来挑</span>`;
     grid.appendChild(empty);
   }
   const todayCnt=store.today.ids?store.today.ids.length:0;
   const oldIds=new Set(store.today.ids||[]);
   const addCnt=picked.filter(id=>!oldIds.has(id)).length; // 本次新勾的数量
-  const todayNewCnt=(store.today.ids||[]).filter(id=>{const c=store.cards[id];return c&&c.pickDate===todayKey();}).length;
+  // v348：显示「今天上传了几张」——这才是用户上传后想核对的数。
+  // 原来的「总计挑入 240 张」是只增不减的历史台账，容易被误读成「我是不是传错了」。
+  const uploadedToday=ids.length;                                  // 今天上传批次、还在浏览器里的卡
+  const alreadyIn=ids.filter(id=>oldIds.has(id)).length;           // 其中已加入今日队列的
   document.getElementById('pickN').textContent=addCnt;
-  document.getElementById('pickCount').textContent=`总计挑入 ${todayCnt} 张 · 今天加入 ${todayNewCnt} 张（本次新选${addCnt}）`;
+  document.getElementById('pickCount').textContent=
+    `今天上传 ${uploadedToday} 张${alreadyIn?`（${alreadyIn} 张已加入）`:''}`;
   // 分页条（>50 张时显示）
   if(pages>1){
     const bar=document.createElement('div');
@@ -3766,7 +3812,8 @@ function confirmPick(){
   });
   store.today.ids=[...new Set([...(store.today.ids||[]),...newOnes])];
   store.today.date=t;
-  save();closePicker();renderAll();showToast(newOnes.length?`今天加入 ${newOnes.length} 张`:'今日列表没有变化');
+  save();closePicker();renderAll();
+  showToast(newOnes.length?`今天加入 ${newOnes.length} 张`:'这些词都已经在今日列表里了');
 }
 function closePicker(){document.getElementById('pickMask').classList.remove('show');}
 
@@ -6620,7 +6667,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v347';
+const APP_VER='v348';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

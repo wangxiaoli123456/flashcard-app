@@ -150,14 +150,62 @@ def pull_reported():
         return []
 
 
+def cloud_card_words():
+    """兜底：直接扫云端所有卡片的英文词。
+    只靠 App 上报有风险 —— 万一某次上报失败/漏报，那个词就永远补不上，
+    用户会反复遇到「今天的新词没发音」。这里用「云端卡片全量扫描」做双保险：
+    只要卡在词库里、仓库里没有它的音频，就补。"""
+    uid = 'cacd1a4b-ed34-4b60-b57e-7cf82f596aea'
+    KEY = 'sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH'
+    # 匿名 key 会被 RLS 拦（返回空表），所以必须用内置账号登录后读
+    tok = None
+    try:
+        body = json.dumps({'email': '315276700@qq.com',
+                           'password': ''.join(chr(c) for c in [87, 120, 108, 53, 55, 55, 53, 50, 48])}).encode()
+        req = urllib.request.Request(SB + '/auth/v1/token?grant_type=password', data=body,
+                                     headers=dict(UA, apikey=KEY, **{'Content-Type': 'application/json'}))
+        tok = json.loads(urllib.request.urlopen(req, timeout=30).read().decode())['access_token']
+    except Exception as e:
+        print('（云端登录失败：%s）' % e)
+        return set()
+
+    ws, off = set(), 0
+    try:
+        while True:
+            url = (SB + '/rest/v1/flash_cards?select=data&user_id=eq.' + uid
+                   + '&offset=%d&limit=1000' % off)
+            req = urllib.request.Request(url, headers=dict(UA, apikey=KEY,
+                                                           **{'Authorization': 'Bearer ' + tok}))
+            rows = json.loads(urllib.request.urlopen(req, timeout=40).read().decode())
+            if not rows:
+                break
+            for r in rows:
+                en = ((r.get('data') or {}).get('en') or '').strip().lower()
+                if en:
+                    ws.add(en)
+            off += 1000
+            if len(rows) < 1000:
+                break
+    except Exception as e:
+        print('（读取云端卡片失败：%s）' % e)
+    return ws
+
+
 def main():
     if '--words' in sys.argv:
         i = sys.argv.index('--words')
         words = [w.strip() for w in sys.argv[i + 1:] if w.strip()]
     else:
-        # 默认：拉取 App 自动上报的缺词清单
-        words = pull_reported()
-        print('云端上报的词: %d 个' % len(words))
+        # 默认：上报清单 ∪ 云端卡片全量（双保险，任一渠道命中都会补）
+        rep = [w.strip().lower() for w in pull_reported() if w and w.strip()]
+        print('云端上报的词: %d 个' % len(rep))
+        card = cloud_card_words()
+        print('云端卡片里的词: %d 个' % len(card))
+        seen, words = set(), []
+        for w in rep + sorted(card):
+            if w and w not in seen:
+                seen.add(w)
+                words.append(w)
 
     have = local_words()
     need = [w for w in words if w and w not in have]

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789443770000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789444527000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1631,6 +1631,9 @@ function sbAudioUrl(en, src){
 function ghAudioUrl(en, src){
   return 'audio/' + b64en(en) + '_' + (src==='baidu'?'baidu':'youdao') + '.mp3';
 }
+// v355：带 CORS 的发音代理（根治「生成音频包跳过新词/短语」）。App 自身跨域无法抓音频字节，
+//        故统一走这个常驻代理实时抓取有道/百度真人音并返回字节；失败即回退跳过。
+const TTS_PROXY='https://a4c319d39ed9536c4.app.workbuddy.host/tts?text=';
 /* v309：同源音频库「已补齐词」清单（助手补完音频后由脚本自动生成，勿手改）。
    命中清单 = 该词云端预生成库里没有、但同源库里有 → 直接走同源库，
    不再先去云端库撞一次 400（否则每点一次发音都白等一次失败往返，表现为「停顿一两秒才出声」）。 */
@@ -3965,6 +3968,12 @@ async function fetchWordAudioBuf(en){
     }
   }catch(e){}
   // v328：同源库和云端库都取不到字节 → 极少数遗漏词（见上）；这些词的发音由助手补进同源库。
+  // v355：发音代理兜底（根治）——同源库/云端/导入包都缺时，实时向带 CORS 的代理抓取任意词/短语的音频字节，
+  //        彻底消除「新词/短语生成音频包被跳过」。失败则回退到旧行为（跳过该词）。
+  try{
+    const ab=await grab(TTS_PROXY+encodeURIComponent(en)+'&src=auto');
+    if(ab)return ab;
+  }catch(e){}
   return null;
 }
 function resampleTo(arr,fromRate,toRate){
@@ -6678,7 +6687,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v355';
+const APP_VER='v356';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

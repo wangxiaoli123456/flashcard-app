@@ -4158,6 +4158,18 @@ async function genNewAudio(){
       const e=c.en.trim(); if(e&&!seen.has(e)){seen.add(e);words.push(e);}
     });
     if(!words.length){
+      // v353b：今日已无纯新词时，改合入今日列表里所有「能听的」词（复习词/错题也行），
+      // 避免挑完新词、孩子复习过一轮后，再点「生成新词音频」却静默空手而归（用户以为坏了）。
+      const fb=[], fbseen=new Set();
+      (store.today.ids||[]).forEach(id=>{
+        const c=store.cards[id]; if(!c||!c.en||c.arch)return;
+        const e=c.en.trim(); if(e&&!fbseen.has(e)){fbseen.add(e);fb.push(e);}
+      });
+      if(fb.length){
+        showToast('今日新词已学完，改合入全部可听词（'+fb.length+' 个）');
+        await genMergedAudio(fb,'newAudioBox','newAudioInfo','newAudioPlayer','newAudioDl','__newAudioUrl','新词音频');
+        return;
+      }
       showToast(other?('今日列表里还没有新词（现有 '+other+' 个是错题/复习词）'):'今天还没挑新词');
       return;
     }
@@ -6666,7 +6678,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v353';
+const APP_VER='v354';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

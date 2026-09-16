@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789800000000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789539281000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -101,7 +101,7 @@ window.addEventListener('unhandledrejection',function(e){});
         .flashcard .fc-status{position:absolute;top:6px;left:6px;z-index:5;font-size:11px;padding:2px 9px;border-radius:20px;color:#fff;font-weight:700;box-shadow:0 2px 6px rgba(23,43,77,.15);}
         .st-new{background:linear-gradient(180deg,#FFAE5E,#F58414);}.st-weak{background:linear-gradient(180deg,#FF8A65,#F4511E);}.st-hist{background:linear-gradient(180deg,#7CC0FF,#4D9BF5);}.st-egg{background:linear-gradient(180deg,#C39DFF,#9F6BFF);}
         .flashcard .fc-edit{position:absolute;top:6px;right:6px;z-index:5;background:rgba(255,255,255,.92);border:none;border-radius:50%;width:25px;height:25px;font-size:12px;cursor:pointer;color:#8A94A6;box-shadow:0 2px 6px rgba(23,43,77,.12);}
-        .flashcard .fc-del{position:absolute;bottom:6px;right:6px;z-index:5;background:rgba(255,255,255,.92);border:none;border-radius:50%;width:25px;height:25px;font-size:12px;cursor:pointer;color:#E05050;box-shadow:0 2px 6px rgba(23,43,77,.12);}
+        .flashcard .fc-del{position:absolute;bottom:6px;left:6px;right:auto;z-index:5;background:rgba(255,255,255,.92);border:none;border-radius:50%;width:25px;height:25px;font-size:12px;cursor:pointer;color:#E05050;box-shadow:0 2px 6px rgba(23,43,77,.12);}
         .btn{border:none;border-radius:50px;padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer;transition:transform .15s ease,box-shadow .2s;}
         .btn-blue{background:linear-gradient(180deg,#6DB4FF,#4493F2);color:#fff;box-shadow:0 6px 16px -4px rgba(68,147,242,.55),inset 0 1px 0 rgba(255,255,255,.30);}
         .btn-green{background:linear-gradient(180deg,#46D892,#1FAD69);color:#fff;box-shadow:0 6px 16px -4px rgba(31,173,105,.5),inset 0 1px 0 rgba(255,255,255,.30);}
@@ -2382,6 +2382,7 @@ function renderLib(){
         el.querySelector('.fc-word').innerHTML=c.en
           ?`<span style="color:#FF9B3D;font-size:13px;display:inline-block;max-width:calc(100% - 64px);white-space:normal;word-break:break-word;vertical-align:bottom">${esc(c.en)}·待确认</span>`
           :'<span style="color:#C5A57A;font-size:12px">⏳ 识别中…</span>';
+        el.querySelector('.fc-word').style.paddingBottom='34px'; // v361：抬高待确认文字，避开底部左下删除键/右下确认键，三不重叠
         const okBtn=document.createElement('button');
         okBtn.textContent='✔ 确认';
         okBtn.style.cssText='position:absolute;bottom:4px;right:4px;left:auto;z-index:6;background:#4CAF50;color:#fff;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(76,175,80,.4);';
@@ -6696,7 +6697,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v360';
+const APP_VER='v359';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

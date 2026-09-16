@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789535394000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789700000000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -2522,7 +2522,16 @@ function makeCard(id,c,opt){
     <div class="fc-bottom"><div class="fc-word"><span class="speaker" data-sp="${id}">🔊</span>${esc(c.en||'')}</div></div>
     ${opt.edit?`<button class="fc-edit">✏️</button>`:''}
     ${opt.del?`<button class="fc-del">🗑</button>`:''}`;
-  if(c.imgKey||c.imgUrl)cardImgUrl(c,u=>{if(u){const box=f.querySelector('.fc-img');if(box){box.innerHTML='';const im=document.createElement('img');im.src=u;box.appendChild(im);}}});
+  if(c.imgKey||c.imgUrl){
+    // v359：本机 IndexedDB 图优先（新卡本机必有图，最可靠，彻底根治「上传新卡破图」；不依赖云端/onerror，渲染重入也不丢图）
+    const box=f.querySelector('.fc-img');
+    const _show=u=>{ if(box&&u){ box.innerHTML=''; const im=document.createElement('img'); im.src=u; box.appendChild(im); } };
+    if(c.imgKey){
+      dbGet(c.imgKey).then(localUrl=>{ if(localUrl&&box.isConnected) _show(localUrl); else cardImgUrl(c,_show); }).catch(()=>cardImgUrl(c,_show));
+    } else {
+      cardImgUrl(c,_show);
+    }
+  }
   const sp=f.querySelector('.speaker');
   if(sp)sp.onclick=e=>{e.stopPropagation();playWord(id);};
   if(opt.edit){const b=f.querySelector('.fc-edit');if(b)b.onclick=e=>{e.stopPropagation();openEdit(id);};}
@@ -6687,7 +6696,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v358';
+const APP_VER='v359';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}

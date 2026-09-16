@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789569841000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789570510000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1506,6 +1506,9 @@ async function reuploadAllImages(btn){
         if(publicUrl){ c.imgUrl=publicUrl; ok++; }
       }catch(e){ console.error('reupload',e); fail++; }
     }
+    // v371：重传后把更新了 imgUrl 的卡推回云端，使 imgUrl 经 flash_cards 传播到所有设备
+    // （不仅靠 storage 列表侧信道），双保险根治「某设备卡上无 imgUrl 而本机又无 blob→空白」。
+    try{ if(sb&&sbUser) await doPush(); }catch(e){}
     saveNow(); renderAll();
     showToast(`✅ 已重传 ${ok} 张图${skip?('，跳过 '+skip+' 张（无本地图）'):''}${fail?('，失败 '+fail+' 张'):''}`);
   }catch(e){ showToast('重传失败：'+((e&&e.message)||e)); }
@@ -6733,7 +6736,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v370';
+const APP_VER='v371';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -7080,9 +7083,20 @@ async function syncPullMedia(uid){
     for(const o of list){
       const key=o.name; if(!key)continue;
       if(/^i:/.test(key)){
+        const local=await dbGet(key);
         const {data:{publicUrl}}=sb.storage.from('flash-media').getPublicUrl(uid+'/'+key);
         if(publicUrl){
           Object.values(store.cards).forEach(c=>{ if(c.imgKey===key && !c.imgUrl){ c.imgUrl=publicUrl; changed=true; } });
+        }
+        // v371：把云端图片blob下载到本机IndexedDB，使图片像音频一样跨设备自愈——
+        // 根治「iPad看不到另一台设备上传的图」：图片blob本机私有、原本不下载，只靠云端URL，
+        // 一旦该URL未传到本机卡（云端对象未建/同步时序），本机既无blob又无URL→空白。
+        // 现在只要云端对象存在，任意设备同步后都拥有本地blob，渲染层「本机优先」逻辑即可显示。
+        if(!local){
+          try{
+            const {data:blob,error:dlerr}=await sb.storage.from('flash-media').download(uid+'/'+key);
+            if(blob) await dbPut(key,blob);
+          }catch(e){}
         }
         continue;
       }

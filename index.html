@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789568225000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789568822000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6717,7 +6717,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v368';
+const APP_VER='v369';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -6806,13 +6806,21 @@ function updateCloudUI(){
   }
 }
 /* v364：立即同步改成「先推本地改动→再拉云端」。原 syncPull 只拉不推，
-   导致「在这台改完、另一台点同步」看不到本地改动。现在点一下两端即对齐。 */
+   导致「在这台改完、另一台点同步」看不到本地改动。现在点一下两端即对齐。
+   v368b：升级为「双轮推拉」——推→拉→推→拉，一次点击即把两端并集收敛，
+   避免「先拉后对方才推」导致的单轮漏拉（差几张卡需来回点多次）。 */
 async function syncNow(){
   if(cloudReadOnly()){ sbStatus='只读模式（未上传）'; try{updateCloudUI();}catch(e){} return; }
   if(!sb||!sbUser){ sbStatus='未登录'; try{updateCloudUI();}catch(e){} return; }
-  sbStatus='同步中…（先推后拉）'; try{updateCloudUI();}catch(e){}
-  try{ await doPush(); }catch(e){ console.warn('syncNow push',e); }
-  await syncPull(false);
+  sbStatus='同步中…（双轮推拉）'; try{updateCloudUI();}catch(e){}
+  try{
+    for(let _i=0;_i<2;_i++){
+      try{ await doPush(); }catch(e){ console.warn('syncNow push',e); }
+      try{ await syncPull(true); }catch(e){ console.warn('syncNow pull',e); }
+    }
+  }catch(e){ console.warn('syncNow',e); }
+  try{ await syncPull(false); }catch(e){}
+  try{ ensureAllImgUrls(); if(sbUser) syncPullMedia(sbUser.id); }catch(e){}
 }
 async function syncPull(silent){
   if(cloudReadOnly())return;   // v345：只读模式下不拉取，测试卡不被真实数据覆盖
@@ -6831,9 +6839,10 @@ async function syncPull(silent){
     (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } });
     // v367：云端墓碑权威合并——把云端已删 id 并入本地墓碑，保证各端删除最终一致（替换原“孤儿清理”）
     cloudDeleted.forEach(id=>{ if(!store.deletedIds.includes(id))store.deletedIds.push(id); });
-    const delSet=new Set(store.deletedIds||[]);
     (cards||[]).forEach(r=>{
-      if(delSet.has(r.id)||cloudDeleted.has(r.id)){ schedulePush(); return; } // 已删除（本地或云端墓碑）→ 不拉回本地，并催删云端
+      // v368b：移除「墓碑拦截卡片合并」。删除靠「云端 flash_cards 真正无此卡」传播（syncPullMedia/doPush 删云端 → 各端 cards 遍历不到 → 不再拉回），
+      // 而非靠 deleted 墓碑拦截 cards 合并——否则旧版孤儿清理残留的 deleted 墓碑会永久阻止复活卡拉回，双设备长期差固定张数（如本例差 7 张）。
+      // 此处仅当云端确实返回该卡时才合并；墓碑的剩余作用只剩「清理本地残留的已删卡」（见下方 cloudDeleted.forEach）。
       const ex=store.cards[r.id]; const rt=r.updated_at?new Date(r.updated_at).getTime():0;
       // v251 修复：云端有主题元数据(theme)而本地缺失时，强制采用云端，避免仅比 updated_at 导致主题字段进不来
       const cloudHasTheme=r.data&&r.data.theme; const localHasTheme=ex&&ex.theme;
@@ -6848,7 +6857,10 @@ async function syncPull(silent){
     // 尚未推到云端」的卡当成冗余误删，导致双设备卡片数长期对不上（如本例差 7 张）。
     // 改为「云端墓碑权威」：仅当云端 deleted 列表标记删除时才本地移除；其余一律保留，
     // 交由 doPush 把本地独有卡推上云端后自愈，绝不再因云端暂时缺卡而丢失数据。
-    cloudDeleted.forEach(id=>{ if(store.cards[id]){ delete store.cards[id]; } });
+    // v368b：清理本地残留的已删卡。关键：仅删「云端 cards 里确实不存在」的本地卡，
+    // 跳过云端 cards 已恢复（复活）的 id——否则会把刚从云端拉回的复活卡又删掉，永远补不齐。
+    const cloudCardIds=new Set((cards||[]).map(r=>r.id));
+    cloudDeleted.forEach(id=>{ if(store.cards[id] && !cloudCardIds.has(id)){ delete store.cards[id]; } });
     // 清理今日队列里指向已删/不存在卡(id 不在本地 cards)的孤立 id：删除卡后今日队列可能残留
     // 其引用（旧版删除未同步清理过），不处理会在首页显示空白卡，且 doPush 会把带孤立的队列
     // 推回云端造成反弹。统一在此过滤，保证 today 只含真实存在的卡。

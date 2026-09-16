@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789572382000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789573059000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6765,7 +6765,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v373';
+const APP_VER='v374';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -6935,7 +6935,22 @@ async function syncPull(silent){
     // v368b：清理本地残留的已删卡。关键：仅删「云端 cards 里确实不存在」的本地卡，
     // 跳过云端 cards 已恢复（复活）的 id——否则会把刚从云端拉回的复活卡又删掉，永远补不齐。
     const cloudCardIds=new Set((cards||[]).map(r=>r.id));
-    cloudDeleted.forEach(id=>{ if(store.cards[id] && !cloudCardIds.has(id)){ delete store.cards[id]; } });
+    // v373b：云端 flash_cards 为权威全集，删除传播 = 云端无此卡则各端清理。
+    // 三重保护避免重蹈 v368「孤儿清理误删独有卡」：①仅删本地 _syncAt 存在（曾同步过）的卡，本地新建未推(_syncAt缺失)绝不删；
+    // ②今日队列(today.ids)里的卡绝不删（用户主动挑的词）；③极端哨兵：云端卡片数骤降超 50%（疑似同步/网络异常）本批不删。
+    // 该方案天然支持「删了又加」的复活：重加后 doPush 把卡推回云端 cards，云端有此卡即保留，不依赖易碎的墓碑传播。
+    if(cards && Array.isArray(cards)){
+      const localN=Object.keys(store.cards).length;
+      const missing=Object.keys(store.cards).filter(id=>!cloudCardIds.has(id)).length;
+      if(localN===0 || missing<=Math.max(3,Math.floor(localN*0.5))){
+        Object.keys(store.cards).forEach(id=>{
+          const c=store.cards[id];
+          if(!c || cloudCardIds.has(id) || !c._syncAt) return;
+          if(store.today && store.today.ids && store.today.ids.includes(id)) return;
+          delete store.cards[id];
+        });
+      } else { console.warn('[syncPull清理哨兵] 云端缺失 '+missing+'/本地 '+localN+'，疑似异常，跳过删除清理'); }
+    }
     // 清理今日队列里指向已删/不存在卡(id 不在本地 cards)的孤立 id：删除卡后今日队列可能残留
     // 其引用（旧版删除未同步清理过），不处理会在首页显示空白卡，且 doPush 会把带孤立的队列
     // 推回云端造成反弹。统一在此过滤，保证 today 只含真实存在的卡。

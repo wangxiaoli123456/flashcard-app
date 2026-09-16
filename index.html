@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789556391000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789565260000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6673,6 +6673,14 @@ function boot(){
   const sp=document.getElementById('splash');
   if(sp){sp.remove();}
   try{ initCloudSync(); }catch(e){}
+  /* v364：离台前强制 flush 一次推送。原同步是异步 1.2s 后台推，
+     用户复习完顺手关 App 时改动可能还没发出，导致另一台看不到 → 卡片数不一致。
+     现在切后台/页面隐藏时立即补推一次（fire-and-forget，失败下次打开再补）。 */
+  try{
+    const _flush=()=>{ try{ if(sb&&sbUser) doPush(); }catch(e){} };
+    window.addEventListener('pagehide', _flush, false);
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') _flush(); }, false);
+  }catch(e){}
   // v276：常用词发音后台预取——启动后延迟预热 /audio 缓存，首次点喇叭即秒出
   try{ setTimeout(prefetchCommonAudio, 2000); }catch(e){}
 }
@@ -6706,7 +6714,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v364';
+const APP_VER='v365';
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
@@ -6786,12 +6794,21 @@ function updateCloudUI(){
     let h='';
     h+='<div style="font-size:13px;margin-bottom:6px">👤 已登录：'+(sbUser.email||'')+'</div>';
     h+='<div style="font-size:12px;color:#2E7D32;margin-bottom:8px">状态：'+sbStatus+' · '+APP_VER+'</div>';
-    h+='<div class="row-actions"><button class="btn btn-blue" style="flex:1" onclick="syncPull(false)">立即同步</button><button class="btn btn-ghost" style="flex:1" onclick="sbSignOut()">退出登录</button></div>';
+    h+='<div class="row-actions"><button class="btn btn-blue" style="flex:1" onclick="syncNow()">立即同步</button><button class="btn btn-ghost" style="flex:1" onclick="sbSignOut()">退出登录</button></div>';
     h+='<div class="row-actions" style="margin-top:8px"><button class="btn btn-blue" style="flex:1" onclick="reuploadAllImages(this)">☁️ 一键重传全部图片</button></div>';
     h+='<div style="font-size:12px;color:#8A94A6;margin-top:8px">一键重传：把本机所有图片上传到云端，之后换设备/换链接登录即可看到图。</div>';
     h+='<div style="font-size:11px;color:#8A94A6;margin-top:8px">登录后自动实时同步：你或对方改了数据，本设备约 30 秒内自动更新（已开启实时推送；如需即时刷新点「立即同步」）</div>';
     el.innerHTML=h;
   }
+}
+/* v364：立即同步改成「先推本地改动→再拉云端」。原 syncPull 只拉不推，
+   导致「在这台改完、另一台点同步」看不到本地改动。现在点一下两端即对齐。 */
+async function syncNow(){
+  if(cloudReadOnly()){ sbStatus='只读模式（未上传）'; try{updateCloudUI();}catch(e){} return; }
+  if(!sb||!sbUser){ sbStatus='未登录'; try{updateCloudUI();}catch(e){} return; }
+  sbStatus='同步中…（先推后拉）'; try{updateCloudUI();}catch(e){}
+  try{ await doPush(); }catch(e){ console.warn('syncNow push',e); }
+  await syncPull(false);
 }
 async function syncPull(silent){
   if(cloudReadOnly())return;   // v345：只读模式下不拉取，测试卡不被真实数据覆盖
@@ -6813,7 +6830,36 @@ async function syncPull(silent){
       const ex=store.cards[r.id]; const rt=r.updated_at?new Date(r.updated_at).getTime():0;
       // v251 修复：云端有主题元数据(theme)而本地缺失时，强制采用云端，避免仅比 updated_at 导致主题字段进不来
       const cloudHasTheme=r.data&&r.data.theme; const localHasTheme=ex&&ex.theme;
-      if(!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme)){ const c=Object.assign({},r.data); c._syncAt=rt; store.cards[r.id]=c; } // 严格大于才覆盖：相等(=本地未推送改动，如刚确认)时保留本地，避免"确认后被云端旧值覆盖回重新确认"
+      // v364：字段级 LWW。原整张覆盖会让双设备交叉改同一张卡时一方结果被整体覆盖丢失。
+      // 现在逐字段取较新者：云端字段时间(cloudFA[k]||rt) > 本地(localFA[k]||本地_syncAt) 才用云端，否则保留本地。
+      const cloudData=r.data||{};
+      const cloudFA=cloudData._fieldAt&&typeof cloudData._fieldAt==='object'?cloudData._fieldAt:{};
+      const localFA=(ex&&ex._fieldAt&&typeof ex._fieldAt==='object')?ex._fieldAt:{};
+      if(!ex || (cloudHasTheme&&!localHasTheme) || !ex._syncAt){
+        // 无本地/从未同步/云端有本地缺的主题字段 → 整张采用云端（原行为兜底，不丢新字段）
+        const c=Object.assign({},cloudData); c._syncAt=rt; store.cards[r.id]=c;
+      } else {
+        const merged=Object.assign({},ex); // 默认本地
+        // hasFA：任一端有字段级时间戳 → 走字段级 LWW；两端都无(纯旧卡) → 回退整张覆盖(原行为)
+        const hasFA=Object.keys(cloudFA).length>0||Object.keys(localFA).length>0;
+        Object.keys(cloudData).forEach(k=>{
+          if(k==='_syncAt'||k==='_dirty'||k==='_fieldAt') return;
+          let clT,loT;
+          if(hasFA){
+            // 云端缺该字段时间戳 → 视为未改动(旧)，clT=-1 保留本地；否则按字段时间戳比
+            clT=cloudFA[k]!=null?cloudFA[k]:-1;
+            loT=localFA[k]!=null?localFA[k]:(ex._syncAt||0);
+          }else{
+            clT=rt; loT=(ex._syncAt||0); // 旧卡整张回退：rt>_syncAt 才用云端
+          }
+          if(clT>loT) merged[k]=cloudData[k]; // 云端字段较新才覆盖；否则保留本地（不丢本地改动）
+        });
+        const mFA={}; const allK=new Set([...Object.keys(cloudFA),...Object.keys(localFA),...Object.keys(cloudData)]);
+        allK.forEach(k=>{ const a=cloudFA[k]||0,b=localFA[k]||0; if(a||b) mFA[k]=Math.max(a,b); });
+        if(Object.keys(mFA).length) merged._fieldAt=mFA;
+        merged._syncAt=Math.max(rt,(ex._syncAt||0));
+        store.cards[r.id]=merged;
+      }
     });
     // 云端权威清理本地孤儿：云端已删、本地残留的卡（如曾被误恢复又撤销）在同步时一并移除，
     // 确保"删了的卡不再出现"、多设备最终一致。仅在云端成功返回数据时执行，且只清"曾与云端同步过
@@ -6904,11 +6950,16 @@ async function doPush(){
     Object.keys(store.cards).forEach(id=>{
       const local=store.cards[id];
       const cc=Object.assign({},local); delete cc._syncAt; delete cc._dirty;
+      // v364：生成字段级时间戳 _fieldAt（供 syncPull 字段级 LWW，根治双设备交叉覆盖丢更新）
+      const _fa=Object.assign({},local._fieldAt||{});
+      const _ld=local._dirty&&typeof local._dirty==='object'?local._dirty:{};
+      Object.keys(_ld).forEach(k=>{ if(_ld[k]===true) _fa[k]=now; });
+      cc._fieldAt=_fa;
       const cloud=cwMap[id]||{};
       const dirty=local._dirty&&typeof local._dirty==='object'?local._dirty:{};
       // 字段级合并：本地有效且(云端无效 或 本地该字段刚脏)才用本地；否则沿用云端
       Object.keys(cc).forEach(k=>{
-        if(k==='_syncAt'||k==='_dirty')return;
+        if(k==='_syncAt'||k==='_dirty'||k==='_fieldAt')return;
         const lv=cc[k], cv=cloud[k];
         const localDirty=dirty[k]===true;
         if(_isEffective(lv) && (!_isEffective(cv) || localDirty)){ /* 用本地 lv（已是 cc[k]） */ }

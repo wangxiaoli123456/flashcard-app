@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789567161000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789568225000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -2307,6 +2307,7 @@ function importWordList(){
     const card={en,cn,ex:'',src:libTab,tags:[],imgKey:'',audioKey:'',nights:0,streak:0,next:'',created:t,batch:currentBatch(),imgUrl:''};
     if(archive){card.state='hist';card.arch=true;card.level=6;card.archNext=addDays(t,180);card.next=addDays(t,180);card.confirm=false;card.master=false;card.poolDate=null;}
     else{card.state='raw';}
+    if(store.deletedIds&&store.deletedIds.length)store.deletedIds=store.deletedIds.filter(x=>x!==id); // v367：重加同id卡→清墓碑，避免被云端墓碑反复误删
     store.cards[id]=card;ok++;
     if(!archive) newWords.push(en);
   });
@@ -3283,6 +3284,7 @@ document.getElementById('batchInput').addEventListener('change',e=>{
           // 立即建卡显示（OCR后台跑）；图片只进 IndexedDB（imgKey），不再内联塞 localStorage（大词库容量考虑）
           const card={en:'',cn:'',ex:'',src:libTab,tags:[],imgKey,audioKey:'',nights:0,streak:0,next:'',created:todayKey(),batch:currentBatch(),imgUrl};
           card.state='raw';
+          if(store.deletedIds&&store.deletedIds.length)store.deletedIds=store.deletedIds.filter(x=>x!==id); // v367：重加同id卡→清墓碑
           store.cards[id]=card;markDirty(id,['en','cn','ex','src','tags','imgKey','audioKey','nights','streak','next','created','batch','imgUrl','state']);
           save();
           done++;
@@ -6366,6 +6368,7 @@ function archLibPageChange(d){archLibPage+=d;renderArchLib();}
 function copyArchCard(id){
   const c=store.cards[id]; if(!c){showToast('卡片不存在');return;}
   const nid=uid();
+  if(store.deletedIds&&store.deletedIds.length)store.deletedIds=store.deletedIds.filter(x=>x!==nid); // v367：复制新卡→清墓碑
   store.cards[nid]={
     en:c.en||'', cn:c.cn||'', ex:c.ex||'', src:c.src||'youqi', tags:[...(c.tags||[])],
     imgKey:c.imgKey||'', audioKey:c.audioKey||'', nights:0, streak:0, next:'',
@@ -6714,7 +6717,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v367';
+const APP_VER='v368';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -6824,10 +6827,13 @@ async function syncPull(silent){
       sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid)
     ]);
     if(me)throw me; if(ce)throw ce;
-    (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; });
+    const cloudDeleted=new Set();
+    (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } });
+    // v367：云端墓碑权威合并——把云端已删 id 并入本地墓碑，保证各端删除最终一致（替换原“孤儿清理”）
+    cloudDeleted.forEach(id=>{ if(!store.deletedIds.includes(id))store.deletedIds.push(id); });
     const delSet=new Set(store.deletedIds||[]);
     (cards||[]).forEach(r=>{
-      if(delSet.has(r.id)){ schedulePush(); return; } // 已删除（墓碑）→ 不拉回本地，并催删云端
+      if(delSet.has(r.id)||cloudDeleted.has(r.id)){ schedulePush(); return; } // 已删除（本地或云端墓碑）→ 不拉回本地，并催删云端
       const ex=store.cards[r.id]; const rt=r.updated_at?new Date(r.updated_at).getTime():0;
       // v251 修复：云端有主题元数据(theme)而本地缺失时，强制采用云端，避免仅比 updated_at 导致主题字段进不来
       const cloudHasTheme=r.data&&r.data.theme; const localHasTheme=ex&&ex.theme;
@@ -6838,17 +6844,11 @@ async function syncPull(silent){
       // 两设备"修改不同步"的时序问题已由 syncNow(先推后拉)+pagehide flush(离台强制推送)解决，无需再做字段级手术。
       if(!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme)){ const c=Object.assign({},r.data); c._syncAt=rt; store.cards[r.id]=c; } // 严格大于才覆盖：相等(=本地未推送改动，如刚确认)时保留本地，避免"确认后被云端旧值覆盖回重新确认"
     });
-    // 云端权威清理本地孤儿：云端已删、本地残留的卡（如曾被误恢复又撤销）在同步时一并移除，
-    // 确保"删了的卡不再出现"、多设备最终一致。仅在云端成功返回数据时执行，且只清"曾与云端同步过
-    // （_syncAt 存在）"的卡，跳过本地新建尚未推送（_syncAt 缺失）的卡，避免误删用户刚加的新卡。
-    const cloudSet=new Set((cards||[]).map(r=>r.id));
-    if(cards&&cards.length>0){
-      Object.keys(store.cards).forEach(id=>{
-        if(delSet.has(id)||cloudSet.has(id))return;
-        const c=store.cards[id];
-        if(c&&c._syncAt)delete store.cards[id];
-      });
-    }
+    // v367：删除"孤儿清理"（原逻辑：云端没有就删本地 _syncAt 卡）。该逻辑会把「另一台设备独有、
+    // 尚未推到云端」的卡当成冗余误删，导致双设备卡片数长期对不上（如本例差 7 张）。
+    // 改为「云端墓碑权威」：仅当云端 deleted 列表标记删除时才本地移除；其余一律保留，
+    // 交由 doPush 把本地独有卡推上云端后自愈，绝不再因云端暂时缺卡而丢失数据。
+    cloudDeleted.forEach(id=>{ if(store.cards[id]){ delete store.cards[id]; } });
     // 清理今日队列里指向已删/不存在卡(id 不在本地 cards)的孤立 id：删除卡后今日队列可能残留
     // 其引用（旧版删除未同步清理过），不处理会在首页显示空白卡，且 doPush 会把带孤立的队列
     // 推回云端造成反弹。统一在此过滤，保证 today 只含真实存在的卡。
@@ -6922,6 +6922,12 @@ async function doPush(){
       const {data:cw,error:cwe}=await sb.from('flash_cards').select('id,data').eq('user_id',uid);
       if(!cwe)(cw||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; });
     }catch(e){ /* 读取失败不阻断，后续按"本地全量"兜底推送 */ }
+    // v367：读取云端 deleted 墓碑，合并进本地删除集合，保证删除跨端传播
+    let cloudDelMeta=[];
+    try{
+      const {data:dm,error:dme}=await sb.from('flash_meta').select('data').eq('user_id',uid).eq('key','deleted');
+      if(!dme && dm && dm.length && Array.isArray(dm[0].data)) cloudDelMeta=dm[0].data;
+    }catch(e){}
     // 计算需要推送的卡：与云端任一有效字段不同，或云端没有这张
     const rows=[];
     Object.keys(store.cards).forEach(id=>{
@@ -6976,6 +6982,9 @@ async function doPush(){
     if(store.today && (store.today.ids||[]).length){ metaRows.push({user_id:uid,key:'today',data:store.today,updated_at:iso}); }
     metaRows.push({user_id:uid,key:'log',data:store.log,updated_at:iso});
     metaRows.push({user_id:uid,key:'batch',data:store.batch,updated_at:iso});
+    // v367：云端墓碑权威删除——把本地与云端 deleted 取并集推回云端，各端同步时依此清理，避免误删独有卡
+    const delUnion=[...new Set([...(store.deletedIds||[]),...cloudDelMeta])];
+    metaRows.push({user_id:uid,key:'deleted',data:delUnion,updated_at:iso});
     const {error:me}=await sb.from('flash_meta').upsert(metaRows,{onConflict:'user_id,key'}); if(me)throw me;
     await syncPushMedia(uid);
     saveNow();

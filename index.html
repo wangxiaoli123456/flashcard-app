@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789568822000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789569841000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6609,7 +6609,23 @@ function importPackAudio(){
   }catch(e){}
 }
 
+// v370：版本自动检测——启动时拉同目录 version.txt，若线上版本更新则自动带 cache-bust 刷新，
+// 根治「用户没强刷、一直跑旧版（如 v277）导致修复看不到效果」的问题。
+async function checkVersion(){
+  try{
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),3000);
+    const t=await fetch('version.txt?_='+Date.now(),{cache:'no-store',signal:ctrl.signal});
+    clearTimeout(to);
+    if(!t.ok)return;
+    const v=(await t.text()).trim();
+    if(v && v!==APP_VER){
+      try{ showToast('发现新版本 '+v+'，正在更新…'); }catch(e){}
+      setTimeout(()=>{ const base=location.pathname.split('?')[0]; location.href=base+'?v='+encodeURIComponent(v)+(location.hash||''); }, 700);
+    }
+  }catch(e){ /* 离线/网络失败静默跳过，不影响功能 */ }
+}
 function boot(){
+  checkVersion();
   try{const v=document.getElementById('verBadge');if(v)v.textContent=APP_VER;}catch(e){}
   // v333：登记"当前真正在跑的版本号"。若之后云端用旧整页覆盖了运行时，自愈通道
   // 一看 running 比新页面旧，就会把控制权交回线上最新 index.html。
@@ -6717,7 +6733,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v369';
+const APP_VER='v370';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -6821,6 +6837,22 @@ async function syncNow(){
   }catch(e){ console.warn('syncNow',e); }
   try{ await syncPull(false); }catch(e){}
   try{ ensureAllImgUrls(); if(sbUser) syncPullMedia(sbUser.id); }catch(e){}
+  try{ diagSync(); }catch(e){}
+}
+// v370：同步诊断——同步后对比本地/云端卡数，直接显示差异，便于定位「少了什么卡」
+async function diagSync(){
+  try{
+    if(!sb||!sbUser)return;
+    const uid=sbUser.id;
+    const {count,error}=await sb.from('flash_cards').select('*',{count:'exact',head:true}).eq('user_id',uid);
+    if(error)return;
+    const local=Object.keys(store.cards).length;
+    const cloud=count||0;
+    let msg='已同步 ✓ 本地'+local+' / 云端'+cloud;
+    if(local<cloud) msg+='（本地少'+(cloud-local)+'张，再点一次同步）';
+    else if(local>cloud) msg+='（本地多'+(local-cloud)+'张，部分卡未上传）';
+    sbStatus=msg; try{updateCloudUI();}catch(e){}
+  }catch(e){}
 }
 async function syncPull(silent){
   if(cloudReadOnly())return;   // v345：只读模式下不拉取，测试卡不被真实数据覆盖
@@ -6851,7 +6883,14 @@ async function syncPull(silent){
       // 导致同步后 imgKey/imgUrl/state/confirm 等字段丢失 → ①跨设备图片无法恢复(ensureAllImgUrls/syncPullMedia 匹配不到 imgKey) ②新词池被污染丢词。
       // 整卡合并完整保留云端卡全部字段，跨设备图片与词数一致性恢复。
       // 两设备"修改不同步"的时序问题已由 syncNow(先推后拉)+pagehide flush(离台强制推送)解决，无需再做字段级手术。
-      if(!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme)){ const c=Object.assign({},r.data); c._syncAt=rt; store.cards[r.id]=c; } // 严格大于才覆盖：相等(=本地未推送改动，如刚确认)时保留本地，避免"确认后被云端旧值覆盖回重新确认"
+      if(!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme)){
+        const c=Object.assign({},r.data); c._syncAt=rt;
+        // v370：图片字段保护——云端无图/无URL但本地有，则保留本地图（imgKey/imgUrl），
+        // 避免「无图版本覆盖有图版本」导致双设备图片互吃（iPad 上传图后被无图版覆盖→自己看不到、手机却能看到）。
+        if(ex && ex.imgKey && !c.imgKey) c.imgKey=ex.imgKey;
+        if(ex && ex.imgUrl && !c.imgUrl) c.imgUrl=ex.imgUrl;
+        store.cards[r.id]=c;
+      } // 严格大于才覆盖：相等(=本地未推送改动，如刚确认)时保留本地，避免"确认后被云端旧值覆盖回重新确认"
     });
     // v367：删除"孤儿清理"（原逻辑：云端没有就删本地 _syncAt 卡）。该逻辑会把「另一台设备独有、
     // 尚未推到云端」的卡当成冗余误删，导致双设备卡片数长期对不上（如本例差 7 张）。

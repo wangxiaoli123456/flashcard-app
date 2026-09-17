@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789656339000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789657983000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1346,10 +1346,20 @@ async function migrateImgData(){
     let changed=0;
     for(const id of Object.keys(store.cards)){
       const c=store.cards[id];
-      if(!c||!c.imgKey||c.imgData) continue;
-      const raw=await dbGet(c.imgKey);
-      if(!raw) continue;
-      let du=(raw instanceof Blob)?(await blobToDataURL(raw)):(typeof raw==='string'?raw:null);
+      if(!c||c.imgData) continue;   // v383：不再要求 imgKey —— 有 imgUrl 且无本地 blob 的卡也能抓取自愈
+      let du=null;
+      if(c.imgKey){ const raw=await dbGet(c.imgKey); if(raw) du=(raw instanceof Blob)?(await blobToDataURL(raw)):(typeof raw==='string'?raw:null); }
+      // v383：本机无 blob（换设备/iPad 从未下载过该图）时，从 Storage 公共 URL 抓回再内嵌。
+      // 桶的公共读 CORS 为 *，任意设备都能取；一旦内嵌 imgData 随卡同步，其后就彻底不依赖 Storage，
+      // 根治「归档旧卡在某台设备永远空白」（此前只认本机 blob，iPad 无 blob 便永远补不上）。
+      if(!du && c.imgUrl){
+        try{
+          const _s=Date.now();
+          const res=await fetch(c.imgUrl,{cache:'force-cache'});
+          if(res.ok){ const blob=await res.blob(); if(blob&&blob.size>200){ du=await blobToDataURL(blob); } }
+          void _s;
+        }catch(e){ /* 抓取失败留待下次心跳重试 */ }
+      }
       if(!du) continue;
       // v381：内嵌图体积控制——单卡图过大会拖垮 DB 同步通道的推送（整卡 data 一起走）。
       // 超 ~150KB 压到最长边 900px，仍超 ~350KB 再压到 640px；闪卡显示足够清晰。
@@ -1395,6 +1405,16 @@ window.addEventListener('beforeunload',()=>{
   // 兜底：同步把 cards 写回 localStorage，防止 IndexedDB 异步写未完成
   try{const m=JSON.parse(localStorage.getItem(KEY)||'{}');m.cards=store.cards;localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}
 });
+// v383：设备一回到前台/获得焦点立即追平一次。iOS Safari 会把后台标签页的心跳节流/挂起，
+// 导致「在 iPad 改了、拿起手机看却没更新」——直到标签页重新活跃才拉。此监听在用户真正打开
+// App 的瞬间触发一次 推+拉，保证跨设备改动立刻可见，不再依赖被节流的 30s 心跳。
+function catchUpOnVisible(){
+  if(document.visibilityState!=='visible')return;
+  if(!sb||!sbUser||pulling)return;
+  syncPull(true).then(()=>{ if(!pulling) return doPush(); }).catch(()=>{});
+}
+document.addEventListener('visibilitychange', catchUpOnVisible);
+window.addEventListener('focus', catchUpOnVisible);
 /* 数据清理：仅清理raw状态的卡片噪音字母，保护已确认卡片 */
 function cleanStoredQ(){
   let changed=false;
@@ -6774,7 +6794,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v382';
+const APP_VER='v383';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

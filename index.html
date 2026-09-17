@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789653920000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789654479000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6765,7 +6765,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v378';
+const APP_VER='v379';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
@@ -6886,6 +6886,16 @@ async function diagSync(){
     sbStatus=msg; try{updateCloudUI();}catch(e){}
   }catch(e){}
 }
+// v379：同步请求超时熔断。Supabase 的 await 在某些情况下会"挂起不返回"（网络抖动/连接假死），
+// 此前无任何超时 → pulling 永不释放 → 状态永久卡在「同步中」且不再重试。
+// 用 Promise.race 给每个云端请求加硬超时，超时即 reject，触发 catch → finally 释放 pulling → 下一轮心跳自愈。
+function withTimeout(p, ms, label){
+  return Promise.race([
+    p,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('同步超时('+(label||'')+')')), ms))
+  ]);
+}
+const SYNC_TIMEOUT=25000;
 async function syncPull(silent){
   if(cloudReadOnly())return;   // v345：只读模式下不拉取，测试卡不被真实数据覆盖
   if(!sb||!sbUser||pulling)return;
@@ -6894,10 +6904,10 @@ async function syncPull(silent){
     if(!silent){ sbStatus='同步中…'; updateCloudUI(); }
     const uid=sbUser.id;
     const sig0=cloudSig(); // 同步前快照
-    const [{data:meta,error:me},{data:cards,error:ce}]=await Promise.all([
+    const [{data:meta,error:me},{data:cards,error:ce}]=await withTimeout(Promise.all([
       sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid),
       sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid)
-    ]);
+    ]), SYNC_TIMEOUT, '拉取云端');
     if(me)throw me; if(ce)throw ce;
     const cloudDeleted=new Set();
     (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } });
@@ -6959,7 +6969,7 @@ async function syncPull(silent){
     if(sig0!==sig1){
       // 仅在数据真正变化时才落盘+重绘，避免 30s 轮询/实时事件无谓重建素材库网格导致闪屏
       saveNow();
-      await syncPullMedia(uid);
+      await withTimeout(syncPullMedia(uid), SYNC_TIMEOUT, '拉媒体');
       sbStatus='已同步 ✓'; if(!silent) updateCloudUI(); renderAll();
     } else {
       sbStatus='已同步 ✓'; if(!silent) updateCloudUI();
@@ -7021,13 +7031,13 @@ async function doPush(){
     // 拉云端当前快照（即便为空也安全）
     let cwMap={};
     try{
-      const {data:cw,error:cwe}=await sb.from('flash_cards').select('id,data').eq('user_id',uid);
+      const {data:cw,error:cwe}=await withTimeout(sb.from('flash_cards').select('id,data').eq('user_id',uid), SYNC_TIMEOUT, '推前拉快照');
       if(!cwe)(cw||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; });
     }catch(e){ /* 读取失败不阻断，后续按"本地全量"兜底推送 */ }
     // v367：读取云端 deleted 墓碑，合并进本地删除集合，保证删除跨端传播
     let cloudDelMeta=[];
     try{
-      const {data:dm,error:dme}=await sb.from('flash_meta').select('data').eq('user_id',uid).eq('key','deleted');
+      const {data:dm,error:dme}=await withTimeout(sb.from('flash_meta').select('data').eq('user_id',uid).eq('key','deleted'), SYNC_TIMEOUT, '推前拉墓碑');
       if(!dme && dm && dm.length && Array.isArray(dm[0].data)) cloudDelMeta=dm[0].data;
     }catch(e){}
     // 计算需要推送的卡：与云端任一有效字段不同，或云端没有这张
@@ -7050,7 +7060,7 @@ async function doPush(){
       if(changed) rows.push({user_id:uid,id,data:cc,updated_at:iso});
     });
     if(rows.length){
-      const {error}=await sb.from('flash_cards').upsert(rows,{onConflict:'user_id,id'});
+      const {error}=await withTimeout(sb.from('flash_cards').upsert(rows,{onConflict:'user_id,id'}), SYNC_TIMEOUT, '推卡片');
       if(error)throw error;
       rows.forEach(r=>{ if(store.cards[r.id]){ store.cards[r.id]._syncAt=now; if(store.cards[r.id]._dirty)store.cards[r.id]._dirty={}; } });
     }
@@ -7060,7 +7070,7 @@ async function doPush(){
       // 绝不用"云端有、本地没有"的差集——否则本地索引未完全加载时会把真实卡当冗余误删。
       const del=store.deletedIds||[];
       if(del.length){
-        const {data:cloudIds,error:ide}=await sb.from('flash_cards').select('id').eq('user_id',uid);
+        const {data:cloudIds,error:ide}=await withTimeout(sb.from('flash_cards').select('id').eq('user_id',uid), SYNC_TIMEOUT, '删前拉ID');
         if(!ide){
           const cloudSet=new Set((cloudIds||[]).map(r=>r.id));
           const toDel=del.filter(id=>cloudSet.has(id));
@@ -7087,8 +7097,8 @@ async function doPush(){
     // v367：云端墓碑权威删除——把本地与云端 deleted 取并集推回云端，各端同步时依此清理，避免误删独有卡
     const delUnion=[...new Set([...(store.deletedIds||[]),...cloudDelMeta])];
     metaRows.push({user_id:uid,key:'deleted',data:delUnion,updated_at:iso});
-    const {error:me}=await sb.from('flash_meta').upsert(metaRows,{onConflict:'user_id,key'}); if(me)throw me;
-    await syncPushMedia(uid);
+    const {error:me}=await withTimeout(sb.from('flash_meta').upsert(metaRows,{onConflict:'user_id,key'}), SYNC_TIMEOUT, '推元数据'); if(me)throw me;
+    await withTimeout(syncPushMedia(uid), SYNC_TIMEOUT, '推媒体');
     saveNow();
     sbStatus='已同步 ✓'; updateCloudUI();
   }catch(e){ sbStatus='同步失败：'+(e.message||e); updateCloudUI(); }

@@ -17,8 +17,9 @@
   5. 分批提交推送（大批量一次推会被 TLS 掐断）
 
 用法：
-  python3 auto_fill.py            # 全自动：拉云端词表 → 补齐 → 推送
-  python3 auto_fill.py --words a b c   # 只补指定词
+  python3 auto_fill.py --manual          # 手动全量：拉云端词表 → 补齐 → 推送（原自动定时已禁用）
+  python3 auto_fill.py --words a b c     # 只补指定词
+  说明：不带 --manual / --words 则直接退出，不再无人值守自动运行（避免自动 bump 版本号、触发 App 全量校准、以及历史上覆盖主分支修复的风险）
 """
 import json, os, sys, base64, re, subprocess, urllib.request, urllib.parse
 import concurrent.futures as cf
@@ -121,7 +122,17 @@ def bump_version():
 
 
 def git_push(msg):
-    subprocess.run(['git', 'add', '-A'], check=True)
+    # 推送前先与远程对齐，杜绝覆盖/分叉（auto_fill 历史上曾覆盖主分支修复，见 backup_v362 tag）
+    subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
+    pr = subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'],
+                        capture_output=True, text=True)
+    if pr.returncode != 0:
+        subprocess.run(['git', 'rebase', '--abort'], capture_output=True, text=True)
+        print('（pull --rebase 失败，已放弃本次推送，避免冲突覆盖：%s）'
+              % ((pr.stderr or pr.stdout or '')[-300:]))
+        return 'FAILED'
+    # 收窄：只提交本任务负责的三个文件，绝不用 git add -A 误带/覆盖别人的改动
+    subprocess.run(['git', 'add', 'audio', 'index.html', 'version.txt'], check=True)
     r = subprocess.run(['git', 'diff', '--cached', '--quiet'], capture_output=True)
     if r.returncode == 0:
         return 'no-change'
@@ -192,6 +203,14 @@ def cloud_card_words():
 
 
 def main():
+    # 【手动模式】自动定时任务已弃用：仅在显式 --manual / --words 时执行补齐与推送，
+    # 避免无人值守地 bump APP_VER（触发 App 全量校准）及历史上覆盖主分支修复的风险。
+    if '--manual' not in sys.argv and '--words' not in sys.argv:
+        print('⚠️ auto_fill 已改为手动模式，无参数时直接退出（不影响 App 运行）。')
+        print('   手动补齐请运行：')
+        print('     全量补齐：python3 auto_fill.py --manual')
+        print('     指定词  ：python3 auto_fill.py --words "apple" "banana"')
+        return
     if '--words' in sys.argv:
         i = sys.argv.index('--words')
         words = [w.strip() for w in sys.argv[i + 1:] if w.strip()]

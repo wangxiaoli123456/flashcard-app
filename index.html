@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789655033000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789655833000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1351,7 +1351,10 @@ async function migrateImgData(){
       if(!raw) continue;
       let du=(raw instanceof Blob)?(await blobToDataURL(raw)):(typeof raw==='string'?raw:null);
       if(!du) continue;
-      if(du.length>1600000){ try{ du=await shrinkDataURL(du,600); }catch(e){} }
+      // v381：内嵌图体积控制——单卡图过大会拖垮 DB 同步通道的推送（整卡 data 一起走）。
+      // 超 ~150KB 压到最长边 900px，仍超 ~350KB 再压到 640px；闪卡显示足够清晰。
+      if(du.length>150000){ try{ du=await shrinkDataURL(du,900); }catch(e){} }
+      if(du.length>350000){ try{ du=await shrinkDataURL(du,640); }catch(e){} }
       c.imgData=du; changed++;
     }
     if(changed){ saveNow(); try{ if(sb&&sbUser) await doPush(); }catch(e){} if(typeof renderAll==='function') renderAll(); }
@@ -3313,7 +3316,13 @@ document.getElementById('batchInput').addEventListener('change',e=>{
             }catch(le){}
           }
           // v372：图片同时内嵌 imgData 随 DB 同步通道跨设备传播（Storage 桶 RLS 拦截写入→不可用，改走 DB）。
-          const card={en:'',cn:'',ex:'',src:libTab,tags:[],imgKey,audioKey:'',nights:0,streak:0,next:'',created:todayKey(),batch:currentBatch(),imgUrl,imgData:data};
+          // v381：内嵌副本先压体积（原图另存 IndexedDB blob 保留清晰度），避免大图把推送拖超时。
+          let imgDataSmall=data;
+          try{
+            if(imgDataSmall && imgDataSmall.length>300000) imgDataSmall=await shrinkDataURL(imgDataSmall,900);
+            if(imgDataSmall && imgDataSmall.length>500000) imgDataSmall=await shrinkDataURL(imgDataSmall,640);
+          }catch(e){}
+          const card={en:'',cn:'',ex:'',src:libTab,tags:[],imgKey,audioKey:'',nights:0,streak:0,next:'',created:todayKey(),batch:currentBatch(),imgUrl,imgData:imgDataSmall};
           card.state='raw';
           if(store.deletedIds&&store.deletedIds.length)store.deletedIds=store.deletedIds.filter(x=>x!==id); // v367：重加同id卡→清墓碑
           store.cards[id]=card;markDirty(id,['en','cn','ex','src','tags','imgKey','audioKey','nights','streak','next','created','batch','imgUrl','imgData','state']);
@@ -6765,9 +6774,9 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v380';
+const APP_VER='v381';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
-let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false;
+let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
 function clearSbCfg(){try{localStorage.removeItem(SB_CFG_KEY);}catch(e){}}
@@ -6849,7 +6858,8 @@ function updateCloudUI(){
     loginPanel.style.display='none';
     let h='';
     h+='<div style="font-size:13px;margin-bottom:6px">👤 已登录：'+(sbUser.email||'')+'</div>';
-    h+='<div style="font-size:12px;color:#2E7D32;margin-bottom:8px">状态：'+sbStatus+' · '+APP_VER+'</div>';
+    const _hm=lastSyncOkAt?new Date(lastSyncOkAt).toLocaleTimeString('zh-CN',{hour12:false}).slice(0,5):'';
+    h+='<div style="font-size:12px;color:#2E7D32;margin-bottom:8px">状态：'+sbStatus+(_hm?(' · 上次成功 '+_hm):'')+' · '+APP_VER+'</div>';
     h+='<div class="row-actions"><button class="btn btn-blue" style="flex:1" onclick="syncNow()">立即同步</button><button class="btn btn-ghost" style="flex:1" onclick="sbSignOut()">退出登录</button></div>';
     h+='<div class="row-actions" style="margin-top:8px"><button class="btn btn-blue" style="flex:1" onclick="reuploadAllImages(this)">☁️ 一键重传全部图片</button></div>';
     h+='<div style="font-size:12px;color:#8A94A6;margin-top:8px">一键重传：把本机所有图片上传到云端，之后换设备/换链接登录即可看到图。</div>';
@@ -6882,7 +6892,7 @@ async function diagSync(){
   try{
     if(!sb||!sbUser)return;
     const uid=sbUser.id;
-    const {count,error}=await sb.from('flash_cards').select('*',{count:'exact',head:true}).eq('user_id',uid);
+    const {count,error}=await withTimeout(sb.from('flash_cards').select('*',{count:'exact',head:true}).eq('user_id',uid), SYNC_TIMEOUT, '诊断卡数');
     if(error)return;
     const local=Object.keys(store.cards).length;
     const cloud=count||0;
@@ -6976,9 +6986,9 @@ async function syncPull(silent){
       // 仅在数据真正变化时才落盘+重绘，避免 30s 轮询/实时事件无谓重建素材库网格导致闪屏
       saveNow();
       await withTimeout(syncPullMedia(uid), SYNC_TIMEOUT, '拉媒体');
-      sbStatus='已同步 ✓'; if(!silent) updateCloudUI(); renderAll();
+      lastSyncOkAt=Date.now(); sbStatus='已同步 ✓'; if(!silent) updateCloudUI(); renderAll();
     } else {
-      sbStatus='已同步 ✓'; if(!silent) updateCloudUI();
+      lastSyncOkAt=Date.now(); sbStatus='已同步 ✓'; if(!silent) updateCloudUI();
     }
   }catch(e){ sbStatus='同步失败：'+(e.message||e); if(!silent) updateCloudUI(); }
   finally{ pulling=false; }
@@ -7035,11 +7045,11 @@ async function doPush(){
   try{
     const uid=sbUser.id; const now=Date.now(); const iso=new Date(now).toISOString();
     // 拉云端当前快照（即便为空也安全）
-    let cwMap={};
+    let cwMap={}, snapOk=false;
     try{
       const {data:cw,error:cwe}=await withTimeout(sb.from('flash_cards').select('id,data').eq('user_id',uid), SYNC_TIMEOUT, '推前拉快照');
-      if(!cwe)(cw||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; });
-    }catch(e){ /* 读取失败不阻断，后续按"本地全量"兜底推送 */ }
+      if(!cwe){ snapOk=true; (cw||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; }); }
+    }catch(e){ /* 读取失败不阻断；v381：但此时 snapOk=false，下面只推"本地新建/有脏标记"的卡，绝不按全量重推 */ }
     // v367：读取云端 deleted 墓碑，合并进本地删除集合，保证删除跨端传播
     let cloudDelMeta=[];
     try{
@@ -7050,25 +7060,55 @@ async function doPush(){
     const rows=[];
     Object.keys(store.cards).forEach(id=>{
       const local=store.cards[id];
+      if(!local)return;
       const cc=Object.assign({},local); delete cc._syncAt; delete cc._dirty;
-      const cloud=cwMap[id]||{};
+      const cloud=cwMap[id];
       const dirty=local._dirty&&typeof local._dirty==='object'?local._dirty:{};
+      const hasDirty=Object.keys(dirty).length>0;
+      // v381：快照不可信(snapOk=false)时只推"新建未同步(_syncAt 空)"或"有脏标记"的卡。
+      // 否则云端降级/超时那一轮会误判"所有卡都变了"→全量重推大 payload→必然再次超时，形成死循环。
+      if(!snapOk && cloud===undefined && !hasDirty && local._syncAt) return;
+      const cloudData=cloud||{};
       // 字段级合并：本地有效且(云端无效 或 本地该字段刚脏)才用本地；否则沿用云端
       Object.keys(cc).forEach(k=>{
         if(k==='_syncAt'||k==='_dirty'||k==='_fieldAt')return;
-        const lv=cc[k], cv=cloud[k];
+        const lv=cc[k], cv=cloudData[k];
         const localDirty=dirty[k]===true;
         if(_isEffective(lv) && (!_isEffective(cv) || localDirty)){ /* 用本地 lv（已是 cc[k]） */ }
         else if(_isEffective(cv)){ cc[k]=cv; } // 本地无效/未改 → 继承云端，防止空值冲掉正确值
       });
       // 是否真有差异需要推（避免无谓写放大）
-      const changed = !cwMap[id] || Object.keys(cc).some(k=>JSON.stringify(cc[k])!==JSON.stringify(cloud[k]));
+      const changed = cloud===undefined || Object.keys(cc).some(k=>JSON.stringify(cc[k])!==JSON.stringify(cloudData[k]));
       if(changed) rows.push({user_id:uid,id,data:cc,updated_at:iso});
     });
+    // v381：分批推送。单卡 data 含 imgData(内嵌图) 时可能有几十~上百 KB，
+    // 一次 upsert 全部卡片会生成数 MB 请求体，在后端降级/弱网下必然撞 25s 超时。
+    // 改成按"累计字节 ≤900KB 且 ≤12 张"分批，逐批带超时；某批失败只影响该批，
+    // 成功的批立即标记已同步，失败的批保留脏标记由下次心跳重试，不会整轮白跑。
+    let cardFail=0;
     if(rows.length){
-      const {error}=await withTimeout(sb.from('flash_cards').upsert(rows,{onConflict:'user_id,id'}), SYNC_TIMEOUT, '推卡片');
-      if(error)throw error;
-      rows.forEach(r=>{ if(store.cards[r.id]){ store.cards[r.id]._syncAt=now; if(store.cards[r.id]._dirty)store.cards[r.id]._dirty={}; } });
+      const BATCH_BYTES=900*1024, BATCH_MAX=12;
+      let buf=[], bufBytes=0, firstErr=null;
+      const flush=async()=>{
+        if(!buf.length)return;
+        const ids=buf.map(r=>r.id);
+        try{
+          const {error}=await withTimeout(sb.from('flash_cards').upsert(buf,{onConflict:'user_id,id'}), SYNC_TIMEOUT, '推卡片');
+          if(error) throw error;
+          ids.forEach(id=>{ const c=store.cards[id]; if(c){ c._syncAt=now; if(c._dirty)c._dirty={}; } });
+        }catch(e){
+          cardFail+=ids.length; firstErr=firstErr||e;
+          console.warn('[推卡分批失败] '+ids.length+' 张将在下一轮重试', e&&e.message||e);
+        }
+        buf=[]; bufBytes=0;
+      };
+      for(const r of rows){
+        let sz=0; try{ sz=JSON.stringify(r.data).length; }catch(e){ sz=1024; }
+        if(buf.length && (bufBytes+sz>BATCH_BYTES || buf.length>=BATCH_MAX)) await flush();
+        buf.push(r); bufBytes+=sz;
+      }
+      await flush();
+      if(cardFail && cardFail===rows.length){ if(firstErr) throw firstErr; else throw new Error('推卡片失败'); }
     }
     // 删除云端中本地已不存在的卡：删除操作必须同步到云端，否则下次 syncPull 又把已删卡拉回本地（删了又复活）
     try{
@@ -7104,9 +7144,13 @@ async function doPush(){
     const delUnion=[...new Set([...(store.deletedIds||[]),...cloudDelMeta])];
     metaRows.push({user_id:uid,key:'deleted',data:delUnion,updated_at:iso});
     const {error:me}=await withTimeout(sb.from('flash_meta').upsert(metaRows,{onConflict:'user_id,key'}), SYNC_TIMEOUT, '推元数据'); if(me)throw me;
-    await withTimeout(syncPushMedia(uid), SYNC_TIMEOUT, '推媒体');
+    // v381：媒体上传(Storage)失败不应拖垮整轮同步——图片主通道已改走卡片内嵌 imgData(DB 同步)，
+    // Storage 桶当前不可用是常态，故此处只告警不抛错，避免"卡和元数据都推成功了却被判定同步失败"。
+    try{ await withTimeout(syncPushMedia(uid), SYNC_TIMEOUT, '推媒体'); }catch(e){ console.warn('[推媒体失败,不影响数据同步]', e&&e.message||e); }
     saveNow();
-    sbStatus='已同步 ✓'; updateCloudUI();
+    if(cardFail){ sbStatus='部分同步：'+cardFail+' 张卡待重试'; }
+    else { lastSyncOkAt=Date.now(); sbStatus='已同步 ✓'; }
+    updateCloudUI();
   }catch(e){ sbStatus='同步失败：'+(e.message||e); updateCloudUI(); }
 }
 async function syncPushMedia(uid){
@@ -7189,16 +7233,27 @@ function startRealtime(){
   // v375：双向心跳——每 30s 先推后拉，确保本机改动（挑词/确认/加卡/标记学会）一定传上云，
   // 再拉回对端改动，彻底消除「改动只靠 save 时机推送、偶发漏推就永久滞留」的隐患。
   // 此前轮询只拉不推，若 save→schedulePush 那一次推送被跳过（恰逢 pulling 或被网络/切后台打断）改动就永远卡在本机。
-  pullTimer=setInterval(async ()=>{
-    try{ if(sb&&sbUser && !pulling) await doPush(); }catch(e){ console.warn('[心跳推]',e); }
-    try{ await syncPull(true); }catch(e){}
+  // v381：心跳改为「递归定时 + 失败退避」。每轮先推后拉；任一步失败就把间隔
+  // 30s→60s→120s→最长 5 分钟，避免后端降级期高频无效重试把页面拖慢；
+  // 某轮全成功立刻回落 30s。改动始终留本地等下轮重试，云端恢复后自动追上，不丢数据。
+  scheduleHeartbeat(30000);
+}
+function scheduleHeartbeat(delay){
+  if(pullTimer){ clearTimeout(pullTimer); }
+  pullTimer=setTimeout(async ()=>{
+    let ok=true;
+    try{ if(sb&&sbUser && !pulling) await doPush(); }catch(e){ ok=false; console.warn('[心跳推]',e); }
+    try{ await syncPull(true); }catch(e){ ok=false; }
+    if(/失败|超时/.test(String(sbStatus))) ok=false;
     // v380：一次性自动迁移 imgData（仅首次心跳后跑）。当前设备若持有归档/旧卡的本地 blob，
     // 即内嵌为 imgData 并推上云，使无 blob 的换设备(如 iPad)经同步拿到图，根治归档词不出图。
     if(!migrateOnceDone){ migrateOnceDone=true; try{ await migrateImgData(); }catch(e){} }
-  }, 30000);
+    hbFails = ok?0:(hbFails+1);
+    scheduleHeartbeat(ok?30000:Math.min(30000*Math.pow(2,hbFails),300000));
+  }, delay);
 }
 function stopRealtime(){
-  if(pullTimer){ clearInterval(pullTimer); pullTimer=null; }
+  if(pullTimer){ clearTimeout(pullTimer); pullTimer=null; }
   if(rtChannel && sb && sb.removeChannel){ try{ sb.removeChannel(rtChannel); }catch(e){} rtChannel=null; }
 }
 /* 启动：先尝试从 IndexedDB 读 cards（主数据），失败回退 localStorage 旧格式 */

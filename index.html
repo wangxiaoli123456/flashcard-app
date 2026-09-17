@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789654479000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789655033000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6765,9 +6765,9 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v379';
+const APP_VER='v380';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
-let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false;
+let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false;
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
 function clearSbCfg(){try{localStorage.removeItem(SB_CFG_KEY);}catch(e){}}
@@ -6791,6 +6791,10 @@ async function reconcilePush(){
     if(error){ await doPush(); return; }
     if(count===0){ await doPush(); }
   }catch(e){}
+  // v380：登录同步后自动把本机 IndexedDB 里的图内嵌为 imgData 并推上云（migrateImgData）。
+  // 归档/旧卡当初只在创建机有 blob、未内嵌 imgData；换设备(如 iPad)本机无 blob、Storage 桶又常超时/为空 → 永远空白。
+  // 让持有 blob 的创建机（手机）自动跑一次，imgData 即随卡经 DB 同步到所有端，根治归档词不出图。
+  try{ await migrateImgData(); }catch(e){}
 }
 async function initCloudSync(){
   const cfg=sbCfg();
@@ -6868,7 +6872,9 @@ async function syncNow(){
     }
   }catch(e){ console.warn('syncNow',e); }
   try{ await syncPull(false); }catch(e){}
-  try{ ensureAllImgUrls(); if(sbUser) syncPullMedia(sbUser.id); }catch(e){}
+  try{ ensureAllImgUrls(); }catch(e){}
+  try{ if(sbUser) syncPullMedia(sbUser.id); }catch(e){}
+  try{ await migrateImgData(); }catch(e){}
   try{ diagSync(); }catch(e){}
 }
 // v370：同步诊断——同步后对比本地/云端卡数，直接显示差异，便于定位「少了什么卡」
@@ -7186,6 +7192,9 @@ function startRealtime(){
   pullTimer=setInterval(async ()=>{
     try{ if(sb&&sbUser && !pulling) await doPush(); }catch(e){ console.warn('[心跳推]',e); }
     try{ await syncPull(true); }catch(e){}
+    // v380：一次性自动迁移 imgData（仅首次心跳后跑）。当前设备若持有归档/旧卡的本地 blob，
+    // 即内嵌为 imgData 并推上云，使无 blob 的换设备(如 iPad)经同步拿到图，根治归档词不出图。
+    if(!migrateOnceDone){ migrateOnceDone=true; try{ await migrateImgData(); }catch(e){} }
   }, 30000);
 }
 function stopRealtime(){

@@ -5555,7 +5555,7 @@ function manualConfirm(id){
     showToast('⚠️ 中英文需核对：OCR可能识别有误，请点✏️修正后再确认');
     setTimeout(()=>{closeFs();openEdit(id);},200);return;
   }
-  c.state='new';markDirty(id,['state']);save();renderAll();closeFs();showToast('✔ 已确认！可在「新词」页挑入今天');
+  c.state='new';markDirty(id,['state']);save();schedulePush();renderAll();closeFs();showToast('✔ 已确认！可在「新词」页挑入今天');
 }
 function manualMaster(id){
   const c=store.cards[id];if(!c)return;
@@ -5566,7 +5566,7 @@ function manualMaster(id){
     if(!c.pickDate)c.pickDate=todayKey(); if(c.pickDate0==null)c.pickDate0=todayKey(); // 记录首次挑卡日（素材库批次不动）
     store.today.date=todayKey();
     markDirty(id,['state','pickDate','pickDate0']);
-    save();renderAll();showToast('📥 已加入今日新词，今晚正式学习');
+    save();schedulePush();renderAll();showToast('📥 已加入今日新词，今晚正式学习');
   }else if(c.state==='wrong'){
     c.state='hist';c.nights=0;c.streak=0;c.confirm=false;c.poolDate=null;c.master=false;c.level=1;c.next=addDays(todayKey(),3);
     markDirty(id,['state','nights','streak','confirm','poolDate','master','level','next']);
@@ -7170,8 +7170,13 @@ function startRealtime(){
         .subscribe();
     }
   }catch(e){ console.warn('realtime 订阅失败，将依赖轮询兜底',e); }
-  // 兜底轮询：每 30s 静默拉一次，确保远端变更（含 agent 代笔）一定更新到本机
-  pullTimer=setInterval(()=>{ syncPull(true); }, 30000);
+  // v375：双向心跳——每 30s 先推后拉，确保本机改动（挑词/确认/加卡/标记学会）一定传上云，
+  // 再拉回对端改动，彻底消除「改动只靠 save 时机推送、偶发漏推就永久滞留」的隐患。
+  // 此前轮询只拉不推，若 save→schedulePush 那一次推送被跳过（恰逢 pulling 或被网络/切后台打断）改动就永远卡在本机。
+  pullTimer=setInterval(async ()=>{
+    try{ if(sb&&sbUser && !pulling) await doPush(); }catch(e){ console.warn('[心跳推]',e); }
+    try{ await syncPull(true); }catch(e){}
+  }, 30000);
 }
 function stopRealtime(){
   if(pullTimer){ clearInterval(pullTimer); pullTimer=null; }

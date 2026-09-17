@@ -3,7 +3,7 @@ const { createClient } = require("/tmp/fc/harness/node_modules/@supabase/supabas
 const __SB_URL="https://bununhxkphvlvgvhanpk.supabase.co", __KEY="sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH";
 const UID="cacd1a4b-ed34-4b60-b57e-7cf82f596aea";
 let sb = createClient(__SB_URL, __KEY, { auth:{ persistSession:false, autoRefreshToken:true } });
-let sbUser=null, pulling=false;
+let sbUser=null, pulling=false, store=null;
 let idxFullCounter=0, lastPullIso='';
 let sbStatus='';
 const SYNC_TIMEOUT=25000;
@@ -130,7 +130,7 @@ async function doPush(){
           ids.forEach(id=>{ const c=store.cards[id]; if(c){ c._syncAt=now; if(c._dirty)c._dirty={}; } });
         }catch(e){
           cardFail+=ids.length; firstErr=firstErr||e;
-          console.warn('[推卡分批失败] '+ids.length+' 张将在下一轮重试', e&&e.message||e);
+          console.error('[推卡分批失败-真实]', JSON.stringify(ids), '| msg=', e&&e.message, '| code=', e&&e.code, '| details=', e&&e.details);
         }
         buf=[]; bufBytes=0;
       };
@@ -210,7 +210,12 @@ async function syncPull(silent){
       const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉卡片索引(全量)');
       if(e1)throw e1; idx=ci||[]; idxFullCounter=0;
     }else{
-      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',lastPullIso), SYNC_TIMEOUT, '拉卡片索引(增量)');
+      // v383：水位回退 2 秒做「重叠窗口」——原用严格 > 水位，凡是与上次同秒/同毫秒的变更会被永久漏掉
+      // （典型：两端交替操作、或同一秒内连续改，后一次就再也拉不到，表现为「有的更新收不到、要等下次全量」）。
+      // 重叠拉取只会重复拿到"已经有的卡"，由下面的 _syncAt 比较幂等跳过，零副作用。
+      let _wf=lastPullIso;
+      try{ const t=new Date(lastPullIso).getTime(); if(!isNaN(t)) _wf=new Date(t-2000).toISOString(); }catch(e){}
+      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',_wf), SYNC_TIMEOUT, '拉卡片索引(增量)');
       if(e1)throw e1; idx=ci||[];
     }
     // 仅拉"本地没有 / 云端更新时间比本地记录(_syncAt=上次云端时间戳)新"的卡，分批 25 张
@@ -221,7 +226,7 @@ async function syncPull(silent){
       (idx||[]).forEach(r=>{
         const ex=store.cards[r.id];
         const rt=r.updated_at?new Date(r.updated_at).getTime():0;
-        if(!ex || rt>(ex._syncAt||0)) need.push(r.id);
+        if(!ex || rt>(ex._syncAt||0)) need.push(r.id); console.error('[DBG pull] fullIdx=',fullIdx,'wet=',typeof _wf!=='undefined'?_wf:'(n/a)','idxN=',(idx||[]).length,'needN=',need.length,'need=',JSON.stringify(need.slice(0,8)));
       });
       for(let i=0;i<need.length;i+=25){
         const chunk=need.slice(i,i+25);

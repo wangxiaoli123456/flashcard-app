@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789657983000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789660208000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -6794,7 +6794,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v383';
+const APP_VER='v384';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -6884,6 +6884,7 @@ function updateCloudUI(){
     h+='<div style="font-size:12px;color:#2E7D32;margin-bottom:8px">状态：'+sbStatus+(_hm?(' · 上次成功 '+_hm):'')+' · '+APP_VER+'</div>';
     h+='<div class="row-actions"><button class="btn btn-blue" style="flex:1" onclick="syncNow()">立即同步</button><button class="btn btn-ghost" style="flex:1" onclick="sbSignOut()">退出登录</button></div>';
     h+='<div class="row-actions" style="margin-top:8px"><button class="btn btn-blue" style="flex:1" onclick="reuploadAllImages(this)">☁️ 一键重传全部图片</button></div>';
+    h+='<div class="row-actions" style="margin-top:8px"><button class="btn btn-ghost" style="flex:1" onclick="forceFullSync()">🔄 强制全量同步（补全历史图片）</button></div>';
     h+='<div style="font-size:12px;color:#8A94A6;margin-top:8px">一键重传：把本机所有图片上传到云端，之后换设备/换链接登录即可看到图。</div>';
     h+='<div style="font-size:11px;color:#8A94A6;margin-top:8px">登录后自动实时同步：你或对方改了数据，本设备约 30 秒内自动更新（已开启实时推送；如需即时刷新点「立即同步」）</div>';
     el.innerHTML=h;
@@ -6924,6 +6925,20 @@ async function diagSync(){
     sbStatus=msg; try{updateCloudUI();}catch(e){}
   }catch(e){}
 }
+// v384：强制全量同步——清空增量水位+计数，立即触发一次全量校准。
+// 背景：历史老词图已改为「轻量 imgUrl + 实时读 Storage」，云端 updated_at 已刷新；
+// 但增量同步依赖水位(lastPullIso)，若设备水位已领先于云端更新时间则永远拉不到这批图。
+// 此按钮（或版本升级自动）调用，强制重做一次全量校准，确保老词图全部落到本地。
+async function forceFullSync(){
+  if(cloudReadOnly()){ sbStatus='只读模式（未触发）'; try{updateCloudUI();}catch(e){} return; }
+  if(!sb||!sbUser){ sbStatus='未登录'; try{updateCloudUI();}catch(e){} return; }
+  try{ localStorage.removeItem('fc_lastPull'); }catch(e){}
+  lastPullIso=''; idxFullCounter=0;
+  sbStatus='强制全量同步中…'; try{updateCloudUI();}catch(e){}
+  try{ await syncPull(true); }catch(e){ console.warn('forceFullSync',e); }
+  try{ await migrateImgData(); }catch(e){}
+  try{ diagSync(); }catch(e){}
+}
 // v379：同步请求超时熔断。Supabase 的 await 在某些情况下会"挂起不返回"（网络抖动/连接假死），
 // 此前无任何超时 → pulling 永不释放 → 状态永久卡在「同步中」且不再重试。
 // 用 Promise.race 给每个云端请求加硬超时，超时即 reject，触发 catch → finally 释放 pulling → 下一轮心跳自愈。
@@ -6935,6 +6950,8 @@ function withTimeout(p, ms, label){
 }
 const SYNC_TIMEOUT=25000;
 async function syncPull(silent){
+  // v384：版本升级后清空增量水位，强制一次全量校准（拉全瘦身后的历史老词图）
+  try{ const _pv=localStorage.getItem('fc_appver'); if(_pv&&_pv!==APP_VER){ localStorage.removeItem('fc_lastPull'); lastPullIso=''; idxFullCounter=0; } localStorage.setItem('fc_appver',APP_VER); }catch(e){}
   if(cloudReadOnly())return;   // v345：只读模式下不拉取，测试卡不被真实数据覆盖
   if(!sb||!sbUser||pulling)return;
   pulling=true;
@@ -6958,7 +6975,12 @@ async function syncPull(silent){
       const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉卡片索引(全量)');
       if(e1)throw e1; idx=ci||[]; idxFullCounter=0;
     }else{
-      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',lastPullIso), SYNC_TIMEOUT, '拉卡片索引(增量)');
+      // v383：水位回退 2 秒做「重叠窗口」——原用严格 > 水位，凡是与上次同秒/同毫秒的变更会被永久漏掉
+      // （典型：两端交替操作、或同一秒内连续改，后一次就再也拉不到，表现为「有的更新收不到、要等下次全量」）。
+      // 重叠拉取只会重复拿到"已经有的卡"，由下面的 _syncAt 比较幂等跳过，零副作用。
+      let _wf=lastPullIso;
+      try{ const t=new Date(lastPullIso).getTime(); if(!isNaN(t)) _wf=new Date(t-2000).toISOString(); }catch(e){}
+      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',_wf), SYNC_TIMEOUT, '拉卡片索引(增量)');
       if(e1)throw e1; idx=ci||[];
     }
     // 仅拉"本地没有 / 云端更新时间比本地记录(_syncAt=上次云端时间戳)新"的卡，分批 25 张

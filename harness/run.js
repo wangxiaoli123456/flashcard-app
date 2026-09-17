@@ -45,6 +45,11 @@ fns.doPush = fns.doPush.replace(
   'if(rows.length){\n      const BATCH_BYTES',
   "console.error('[DBG doPush] snapOk=',snapOk,'rows=',rows.length, JSON.stringify(rows.map(r=>({id:r.id,state:r.data&&r.data.state}))));\n    if(rows.length){\n      const BATCH_BYTES"
 );
+// 注入调试：打印 syncPull 的增量分支与待拉清单
+fns.syncPull = fns.syncPull.replace(
+  'if(!ex || rt>(ex._syncAt||0)) need.push(r.id);',
+  "if(!ex || rt>(ex._syncAt||0)) need.push(r.id); console.error('[DBG pull] fullIdx=',fullIdx,'wet=',typeof _wf!=='undefined'?_wf:'(n/a)','idxN=',(idx||[]).length,'needN=',need.length,'need=',JSON.stringify(need.slice(0,8)));"
+);
 
 // ---- 组装可执行脚本：stub 掉 DOM/IndexedDB，注入真实 supabase 客户端 ----
 const header = `
@@ -52,7 +57,7 @@ const { createClient } = require(${JSON.stringify(path.join(__dirname, 'node_mod
 const __SB_URL=${JSON.stringify(SB_URL)}, __KEY=${JSON.stringify(KEY)};
 const UID=${JSON.stringify(UID)};
 let sb = createClient(__SB_URL, __KEY, { auth:{ persistSession:false, autoRefreshToken:true } });
-let sbUser=null, pulling=false;
+let sbUser=null, pulling=false, store=null;
 let idxFullCounter=0, lastPullIso='';
 let sbStatus='';
 const SYNC_TIMEOUT=25000;
@@ -76,8 +81,14 @@ module.exports = { get sb(){return sb;}, set sbUser(v){sbUser=v;}, set store(v){
   set lastPullIso(v){lastPullIso=v;}, get lastPullIso(){return lastPullIso;},
   set pulling(v){pulling=v;}, doPush, syncPull, get sbStatus(){return sbStatus;} };
 `;
+let gen = header + '\n' + Object.values(fns).join('\n') + '\n' + footer;
+// 在写盘前替换：让 flush 的 catch 暴露真实错误
+gen = gen.replace(
+  "        }catch(e){\n          cardFail+=ids.length; firstErr=firstErr||e;\n          console.warn('[推卡分批失败] '+ids.length+' 张将在下一轮重试', e&&e.message||e);",
+  "        }catch(e){\n          cardFail+=ids.length; firstErr=firstErr||e;\n          console.error('[推卡分批失败-真实]', JSON.stringify(ids), '| msg=', e&&e.message, '| code=', e&&e.code, '| details=', e&&e.details);"
+);
 const genPath = path.join(__dirname, 'gen.js');
-fs.writeFileSync(genPath, header + '\n' + Object.values(fns).join('\n') + '\n' + footer);
+fs.writeFileSync(genPath, gen);
 const mod = require(genPath);
 
 // ---- 设备模拟 ----
@@ -136,8 +147,13 @@ function check(name, cond, extra) { results.push({ name, ok: !!cond, extra: extr
   // —— 场景3：A 新增一张卡 → 推 → B 拉 → B 应出现 ——
   const NEWID = 'harness_sync_new';
   A.cards[NEWID] = { en: 'NEW', cn: '新', state: 'new' }; // 无 _syncAt → 新建
+  console.log('  [调试] A推前 cards键=', JSON.stringify(Object.keys(A.cards)), '| NEW有无_syncAt=', A.cards[NEWID]._syncAt);
   await devPush(A);
+  const cn1 = await mod.sb.from('flash_cards').select('id,updated_at').eq('user_id', UID).eq('id', NEWID);
+  console.log('  [调试] A推后云端NEW存在=', cn1.data && cn1.data.length, '| NEW.updated_at=', cn1.data && cn1.data[0] && cn1.data[0].updated_at);
+  console.log('  [调试] B拉前 _lpi=', B._lpi, '| NEW>_lpi?', cn1.data && cn1.data[0] && (cn1.data[0].updated_at > B._lpi));
   await devPull(B);
+  console.log('  [调试] B拉后 _lpi=', B._lpi, '| B有NEW=', !!B.cards[NEWID], '| B卡数=', Object.keys(B.cards).length);
   check('场景3 iPad(B)收到 手机(A)新增的卡', !!B.cards[NEWID], 'B有NEW=' + !!B.cards[NEWID]);
 
   // —— 场景4：B 删除该卡 → 推 → A 拉 → A 应删除 ——

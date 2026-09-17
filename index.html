@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789655833000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789656339000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1355,7 +1355,7 @@ async function migrateImgData(){
       // 超 ~150KB 压到最长边 900px，仍超 ~350KB 再压到 640px；闪卡显示足够清晰。
       if(du.length>150000){ try{ du=await shrinkDataURL(du,900); }catch(e){} }
       if(du.length>350000){ try{ du=await shrinkDataURL(du,640); }catch(e){} }
-      c.imgData=du; changed++;
+      c.imgData=du; try{ markDirty(id,['imgData']); }catch(e){} changed++;   // v382：标脏，否则增量推送不会带上这张补回的图
     }
     if(changed){ saveNow(); try{ if(sb&&sbUser) await doPush(); }catch(e){} if(typeof renderAll==='function') renderAll(); }
   }catch(e){}
@@ -6774,9 +6774,11 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v381';
+const APP_VER='v382';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
+// v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
+let idxFullCounter=0, lastPullIso=(function(){try{return localStorage.getItem('fc_lastPull')||'';}catch(e){return '';}})();
 function sbCfg(){try{const c=JSON.parse(localStorage.getItem(SB_CFG_KEY)||'null'); if(c&&c.url&&c.key)return c;}catch(e){} return {url:SB_EMBED_URL,key:SB_EMBED_KEY};}
 function setSbCfg(c){try{localStorage.setItem(SB_CFG_KEY,JSON.stringify(c));}catch(e){}}
 function clearSbCfg(){try{localStorage.removeItem(SB_CFG_KEY);}catch(e){}}
@@ -6920,11 +6922,52 @@ async function syncPull(silent){
     if(!silent){ sbStatus='同步中…'; updateCloudUI(); }
     const uid=sbUser.id;
     const sig0=cloudSig(); // 同步前快照
-    const [{data:meta,error:me},{data:cards,error:ce}]=await withTimeout(Promise.all([
-      sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid),
-      sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid)
-    ]), SYNC_TIMEOUT, '拉取云端');
-    if(me)throw me; if(ce)throw ce;
+    // v382【省流量·根治】先只拉"轻量索引"(id,updated_at)，再按需拉取"有变化"的卡 data。
+    // 真因：卡片内嵌 imgData(约 88KB/张 × 246 张) → 原「全量拉 data」每轮约 20MB；
+    // 30s 心跳一天就是几十 GB，直接打爆 Supabase 免费版 5GB/月 出网额度 → 后端限流 →
+    // 表现为"同步时好时坏/超时/图时有时无"。改增量后每轮仅传几十 KB(降约 200 倍)。
+    const {data:meta,error:me}=await withTimeout(
+      sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉元数据');
+    if(me)throw me;
+    // v382【省流量·根治】卡片索引走"增量拉取"：默认只拉上次水位之后变化的行（通常为空→几乎零流量），
+    // 每 10 轮 / 本地为空时做一次全量校准。原来每轮全量拉 data(约 20MB) 是打爆免费流量的主因。
+    idxFullCounter++;
+    const fullIdx = idxFullCounter>=10 || !Object.keys(store.cards).length || !lastPullIso;
+    let idx=[];
+    if(fullIdx){
+      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉卡片索引(全量)');
+      if(e1)throw e1; idx=ci||[]; idxFullCounter=0;
+    }else{
+      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',lastPullIso), SYNC_TIMEOUT, '拉卡片索引(增量)');
+      if(e1)throw e1; idx=ci||[];
+    }
+    // 仅拉"本地没有 / 云端更新时间比本地记录(_syncAt=上次云端时间戳)新"的卡，分批 25 张
+    const cards=[];
+    let allFetched=true;
+    try{
+      const need=[];
+      (idx||[]).forEach(r=>{
+        const ex=store.cards[r.id];
+        const rt=r.updated_at?new Date(r.updated_at).getTime():0;
+        if(!ex || rt>(ex._syncAt||0)) need.push(r.id);
+      });
+      for(let i=0;i<need.length;i+=25){
+        const chunk=need.slice(i,i+25);
+        const {data:cd,error:cde}=await withTimeout(
+          sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid).in('id',chunk),
+          SYNC_TIMEOUT, '拉卡片数据');
+        if(cde) throw cde;
+        (cd||[]).forEach(x=>cards.push(x));
+      }
+    }catch(e){ allFetched=false; console.warn('[增量拉卡] 本轮部分未取到，下次心跳补', e&&e.message||e); }
+    // v382：只有本批"全部取回"才推进水位；否则不推进，下轮增量仍会把漏掉的卡带回来重试（避免永久漏卡）
+    if(allFetched){
+      try{
+        let maxTs=lastPullIso||'';
+        (idx||[]).forEach(r=>{ if(r.updated_at&&(!maxTs||r.updated_at>maxTs)) maxTs=r.updated_at; });
+        if(maxTs){ lastPullIso=maxTs; try{ localStorage.setItem('fc_lastPull',maxTs); }catch(e){} }
+      }catch(e){}
+    }
     const cloudDeleted=new Set();
     (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } });
     // v367：云端墓碑权威合并——把云端已删 id 并入本地墓碑，保证各端删除最终一致（替换原“孤儿清理”）
@@ -6960,12 +7003,13 @@ async function syncPull(silent){
     // 交由 doPush 把本地独有卡推上云端后自愈，绝不再因云端暂时缺卡而丢失数据。
     // v368b：清理本地残留的已删卡。关键：仅删「云端 cards 里确实不存在」的本地卡，
     // 跳过云端 cards 已恢复（复活）的 id——否则会把刚从云端拉回的复活卡又删掉，永远补不齐。
-    const cloudCardIds=new Set((cards||[]).map(r=>r.id));
+    const cloudCardIds=new Set((idx||[]).map(r=>r.id)); // v382：云端全集改用轻量索引（cards 现在只含"有变化的卡"，不再是全集）
     // v373b：云端 flash_cards 为权威全集，删除传播 = 云端无此卡则各端清理。
     // 三重保护避免重蹈 v368「孤儿清理误删独有卡」：①仅删本地 _syncAt 存在（曾同步过）的卡，本地新建未推(_syncAt缺失)绝不删；
     // ②今日队列(today.ids)里的卡绝不删（用户主动挑的词）；③极端哨兵：云端卡片数骤降超 50%（疑似同步/网络异常）本批不删。
     // 该方案天然支持「删了又加」的复活：重加后 doPush 把卡推回云端 cards，云端有此卡即保留，不依赖易碎的墓碑传播。
-    if(cards && Array.isArray(cards)){
+    // v382：全集清理只在"全量校准轮"执行——增量轮拿不到云端全集，不能据此判定"云端没有此卡"
+    if(fullIdx && idx && Array.isArray(idx)){
       const localN=Object.keys(store.cards).length;
       const missing=Object.keys(store.cards).filter(id=>!cloudCardIds.has(id)).length;
       if(localN===0 || missing<=Math.max(3,Math.floor(localN*0.5))){
@@ -6976,6 +7020,18 @@ async function syncPull(silent){
           delete store.cards[id];
         });
       } else { console.warn('[syncPull清理哨兵] 云端缺失 '+missing+'/本地 '+localN+'，疑似异常，跳过删除清理'); }
+    }
+    // v382：删除传播改「墓碑驱动」——云端 deleted 列表标了删除的 id，本地若有(且曾同步过)就删。
+    // 原因：增量同步拿不到云端全集，"云端无此卡则清"不再可靠；墓碑是可靠的跨端删除信号。
+    if(cloudDeleted.size){
+      let dn=0;
+      cloudDeleted.forEach(id=>{ const c=store.cards[id]; if(c && c._syncAt){ delete store.cards[id]; dn++; } });
+      if(dn) console.log('[墓碑删除] 本地清理 '+dn+' 张已删卡');
+    }
+    // v382：若某 id 已存在于云端卡片索引，说明它被"删了又加"复活 → 从本地墓碑移除，避免把复活卡再删掉
+    if(idx && idx.length && store.deletedIds && store.deletedIds.length){
+      const liveIds=new Set(idx.map(r=>r.id));
+      store.deletedIds=store.deletedIds.filter(id=>!liveIds.has(id));
     }
     // 清理今日队列里指向已删/不存在卡(id 不在本地 cards)的孤立 id：删除卡后今日队列可能残留
     // 其引用（旧版删除未同步清理过），不处理会在首页显示空白卡，且 doPush 会把带孤立的队列
@@ -7044,12 +7100,28 @@ async function doPush(){
   if(!sb||!sbUser)return;
   try{
     const uid=sbUser.id; const now=Date.now(); const iso=new Date(now).toISOString();
-    // 拉云端当前快照（即便为空也安全）
-    let cwMap={}, snapOk=false;
+    // v382【省流量】推前只拉"轻量索引"(id,updated_at)判断该不该推；仅对"本地有改动/新建"的卡
+    // 才补拉云端 data 做字段级合并。不再全量拉 data（原来每轮约 20MB，是流量爆表的主因）。
+    let cwMap={}, snapOk=false, cloudIdx={};
     try{
-      const {data:cw,error:cwe}=await withTimeout(sb.from('flash_cards').select('id,data').eq('user_id',uid), SYNC_TIMEOUT, '推前拉快照');
-      if(!cwe){ snapOk=true; (cw||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; }); }
-    }catch(e){ /* 读取失败不阻断；v381：但此时 snapOk=false，下面只推"本地新建/有脏标记"的卡，绝不按全量重推 */ }
+      const {data:ci,error:cie}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '推前拉索引');
+      if(!cie){
+        snapOk=true;
+        (ci||[]).forEach(r=>{ cloudIdx[r.id]=r.updated_at?new Date(r.updated_at).getTime():0; });
+        const needData=[];
+        Object.keys(store.cards).forEach(id=>{
+          const c=store.cards[id]; if(!c)return;
+          const dirty=(c._dirty&&Object.keys(c._dirty).length)>0;
+          if(!c._syncAt || dirty) needData.push(id);
+        });
+        for(let i=0;i<needData.length;i+=25){
+          const chunk=needData.slice(i,i+25);
+          const {data:cd,error:cde}=await withTimeout(sb.from('flash_cards').select('id,data').eq('user_id',uid).in('id',chunk), SYNC_TIMEOUT, '推前拉变更卡');
+          if(cde) throw cde;
+          (cd||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; });
+        }
+      }
+    }catch(e){ /* 读取失败不阻断；snapOk=false 时下面只推"本地新建/有脏标记"的卡，绝不按全量重推 */ }
     // v367：读取云端 deleted 墓碑，合并进本地删除集合，保证删除跨端传播
     let cloudDelMeta=[];
     try{
@@ -7065,9 +7137,12 @@ async function doPush(){
       const cloud=cwMap[id];
       const dirty=local._dirty&&typeof local._dirty==='object'?local._dirty:{};
       const hasDirty=Object.keys(dirty).length>0;
-      // v381：快照不可信(snapOk=false)时只推"新建未同步(_syncAt 空)"或"有脏标记"的卡。
-      // 否则云端降级/超时那一轮会误判"所有卡都变了"→全量重推大 payload→必然再次超时，形成死循环。
-      if(!snapOk && cloud===undefined && !hasDirty && local._syncAt) return;
+      const inCloud=cloudIdx[id]!==undefined;   // v382：云端索引里是否有这张卡
+      const neverSynced=!local._syncAt;         // v382：本地新建、从未同步过
+      // v382：只有"有本地改动 / 本地新建 / 云端没有这张"才需要推；其余(无改动且云端已有)直接跳过。
+      // 索引不可信(snapOk=false)时更保守：只推"有脏标记/新建"的卡，绝不按全量重推。
+      if(!snapOk){ if(!hasDirty && !neverSynced) return; }
+      else if(!hasDirty && !neverSynced && inCloud) return;
       const cloudData=cloud||{};
       // 字段级合并：本地有效且(云端无效 或 本地该字段刚脏)才用本地；否则沿用云端
       Object.keys(cc).forEach(k=>{
@@ -7077,8 +7152,10 @@ async function doPush(){
         if(_isEffective(lv) && (!_isEffective(cv) || localDirty)){ /* 用本地 lv（已是 cc[k]） */ }
         else if(_isEffective(cv)){ cc[k]=cv; } // 本地无效/未改 → 继承云端，防止空值冲掉正确值
       });
-      // 是否真有差异需要推（避免无谓写放大）
-      const changed = cloud===undefined || Object.keys(cc).some(k=>JSON.stringify(cc[k])!==JSON.stringify(cloudData[k]));
+      // 是否真有差异需要推（拿到云端 data 就精确比对，拿不到就用"脏标记/新建/云端无"判定）
+      const changed = (cloud!==undefined)
+        ? Object.keys(cc).some(k=>JSON.stringify(cc[k])!==JSON.stringify(cloudData[k]))
+        : (hasDirty || neverSynced || !inCloud);
       if(changed) rows.push({user_id:uid,id,data:cc,updated_at:iso});
     });
     // v381：分批推送。单卡 data 含 imgData(内嵌图) 时可能有几十~上百 KB，
@@ -7127,8 +7204,9 @@ async function doPush(){
           if(toDel.length>SENTINEL){
             console.warn('[删除哨兵] 拟删 '+toDel.length+' 张 > 阈值 '+SENTINEL+'，疑似异常，已跳过删除以保护数据');
           } else if(toDel.length){ const {error:de}=await sb.from('flash_cards').delete().in('id',toDel).eq('user_id',uid); if(de)throw de;
-            const delSet=new Set(toDel);
-            store.deletedIds=del.filter(id=>!delSet.has(id)); // 云端已删 → 清墓碑
+            // v382：删除后【保留】墓碑，不再清空——增量同步下墓碑是唯一的跨端删除信号，清掉对端就永远删不掉。
+            // 复活(重加同 id)由"创建处清墓碑 + syncPull 发现云端已有该卡即移除墓碑"保证。
+            if(store.deletedIds.length>3000) store.deletedIds=store.deletedIds.slice(-3000);
           }
         }
       }

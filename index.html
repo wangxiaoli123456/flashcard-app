@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789705428000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789707130000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -401,6 +401,8 @@ window.addEventListener('unhandledrejection',function(e){});
     .pf-top{display:flex;justify-content:space-between;align-items:center;color:#8a98ad;font-size:13px;font-weight:700;margin-bottom:14px;}
     .pf-text{font-size:22px;line-height:1.6;font-weight:800;color:#1a2740;white-space:pre-wrap;word-break:break-word;}
     .pf-cn{font-size:15px;color:#6b7889;margin-top:10px;line-height:1.5;white-space:pre-wrap;}
+    .pm-text{font-size:22px;line-height:1.6;font-weight:800;color:#1a2740;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;}
+    .pm-cn{font-size:15px;color:#6b7889;margin-top:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
     .pf-bot{display:flex;gap:12px;margin-top:22px;}
     .pf-bot .btn{flex:1;}
 </style>
@@ -567,7 +569,9 @@ window.addEventListener('unhandledrejection',function(e){});
         <div class="seg">
             <button id="libYq" class="on-youqi" onclick="setLibTab('youqi')">🔵 小小优趣闪卡组</button>
             <button id="libSq" onclick="setLibTab('shiqi')">🟠 适趣闪卡组</button>
+            <button id="libPg" onclick="setLibTab('passage')">📖 短文</button>
         </div>
+        <div id="libCardArea">
         <div style="padding:0 14px;margin:2px 0 4px">
             <div style="position:relative">
                 <input id="libSearch" placeholder="🔍 搜单词或中文（如 cat、香蕉）" oninput="libKw=(this.value||'').trim().toLowerCase();renderLib();" style="width:100%;padding:10px 36px 10px 12px;border:1.5px solid #E5EAF2;border-radius:12px;font-size:13px;outline:none;background:#F8FAFD">
@@ -601,6 +605,21 @@ window.addEventListener('unhandledrejection',function(e){});
         <div id="ocrProgress" style="display:none;text-align:center;font-size:13px;color:#3D7BE8;font-weight:700;padding:6px 0 2px;"></div>
         <div id="libGrid" class="grid"></div>
         <div class="empty" id="libEmpty" style="display:none"><div class="big">📦</div>这个闪卡组还是空的<br>点上面按钮上传第一批闪卡吧</div>
+        </div><!-- /libCardArea -->
+        <div id="libPassageWrap" style="display:none">
+          <div class="pg-card" style="margin-bottom:14px">
+            <div class="pg-card-t">➕ 上传小短文</div>
+            <textarea id="pgText" class="pg-ta" placeholder="粘贴英文小短文，空行分隔可一次传多篇…"></textarea>
+            <input id="pgCn" class="pg-input" placeholder="中文意思（可选，整篇或逐句均可）" />
+            <button class="btn btn-green btn-block" onclick="savePassage()">保存到短文</button>
+            <div class="pg-tip">一段=一篇；可带中文便于理解，点读时只朗读英文。</div>
+          </div>
+          <button class="btn btn-purple btn-block" style="margin:0 0 14px" onclick="startPassageReview()">📖 复习短文（单独一项）</button>
+          <div class="pg-card">
+            <div class="pg-card-t">📚 已传短文（<span id="pgListCount">0</span>） <span class="muted" id="pgCount" style="font-weight:400;font-size:13px"></span></div>
+            <div id="pgList" class="pg-list"></div>
+          </div>
+        </div>
     </div>
 
     <!-- 页2：当日新词 -->
@@ -750,22 +769,6 @@ window.addEventListener('unhandledrejection',function(e){});
     </div>
 
     <!-- 页4：进度 -->
-    <div class="page" id="page-passage">
-      <div class="page-head"><h2>📖 小短文</h2><span class="muted" id="pgCount"></span></div>
-      <div class="pg-wrap">
-        <div class="pg-card">
-          <div class="pg-card-t">➕ 上传小短文</div>
-          <textarea id="pgText" class="pg-ta" placeholder="粘贴英文小短文，空行分隔可一次传多篇…"></textarea>
-          <input id="pgCn" class="pg-input" placeholder="中文意思（可选，整篇或逐句均可）" />
-          <button class="btn btn-green btn-block" onclick="savePassage()">保存到短文</button>
-          <div class="pg-tip">一段=一篇；可带中文便于理解，点读时只朗读英文。</div>
-        </div>
-        <div class="pg-card">
-          <div class="pg-card-t">📚 已传短文（<span id="pgListCount">0</span>）</div>
-          <div id="pgList" class="pg-list"></div>
-        </div>
-      </div>
-    </div>
     <div id="pfMask" class="mask">
       <div class="pf-card">
         <div class="pf-top"><span id="pfCount">短文复习</span><button class="pg-mini pg-del" onclick="closePf()">✕</button></div>
@@ -888,7 +891,6 @@ window.addEventListener('unhandledrejection',function(e){});
         <button class="tab" id="tab-today" onclick="switchTab('today')"><span class="ico">🆕</span>新词</button>
         <button class="tab" id="tab-review" onclick="switchTab('review')"><span class="ico">🌙</span>复习</button>
         <button class="tab" id="tab-stat" onclick="switchTab('stat')"><span class="ico">📊</span>进度</button>
-        <button class="tab" id="tab-passage" onclick="switchTab('passage')"><span class="ico">📖</span>短文</button>
         <button class="tab" id="tab-setting" onclick="switchTab('setting')"><span class="ico">⚙️</span>设置</button>
     </div>
 
@@ -1703,7 +1705,6 @@ function switchTab(p){
   if(p==='review')renderReviewPage();
   if(p==='stat')renderStat();
   if(p==='today')renderToday();
-  if(p==='passage')renderPassagePage();
   if(p==='setting')updateAudioEngineUI();
 }
 function updateAudioEngineUI(){
@@ -2458,9 +2459,13 @@ let libOpenMonths=new Set();  // v326：记住用户展开的「月份」文件�
 function setLibTab(t){libTab=t;
   document.getElementById('libYq').className=t==='youqi'?'on-youqi':'';
   document.getElementById('libSq').className=t==='shiqi'?'on-shiqi':'';
-  renderLib();
+  document.getElementById('libPg').className=t==='passage'?'on-youqi':'';
+  const ca=document.getElementById('libCardArea'), pw=document.getElementById('libPassageWrap');
+  if(t==='passage'){ if(ca)ca.style.display='none'; if(pw)pw.style.display='block'; renderPassagePage(); }
+  else { if(ca)ca.style.display='block'; if(pw)pw.style.display='none'; renderLib(); }
 }
 function renderLib(){
+  if(libTab==='passage')return;
   const grid=document.getElementById('libGrid');grid.innerHTML='';
   // 同步当前批次输入框
   const batchInput=document.getElementById('batchName');
@@ -3604,9 +3609,9 @@ function renderPassagePage(){
       : p.state==='wrong'?'<span class="pg-item-tag pg-tag-wrong">待复习</span>'
       : '<span class="pg-item-tag pg-tag-new">新</span>';
     const snippet=(p.text||'').slice(0,80)+(p.text&&p.text.length>80?'…':'');
-    return '<div class="pg-item"><div class="pg-item-t"><div class="pg-item-en">'+esc(snippet)+tag+'</div>'+(p.cn?'<div class="pg-item-cn">'+esc(p.cn)+'</div>':'')+'</div>'
-      +'<div class="pg-item-btns"><button class="pg-mini pg-play" onclick="speakText(passageText(\''+p.id+'\'))">🔊</button>'
-      +'<button class="pg-mini pg-del" onclick="delPassage(\''+p.id+'\')">🗑</button></div></div>';
+    return '<div class="pg-item" onclick="openPassageModal(\''+p.id+'\')"><div class="pg-item-t"><div class="pg-item-en">'+esc(snippet)+tag+'</div>'+(p.cn?'<div class="pg-item-cn">'+esc(p.cn)+'</div>':'')+'</div>'
+      +'<div class="pg-item-btns"><button class="pg-mini pg-play" onclick="event.stopPropagation();speakText(passageText(\''+p.id+'\'))">🔊</button>'
+      +'<button class="pg-mini pg-del" onclick="event.stopPropagation();delPassage(\''+p.id+'\')">🗑</button></div></div>';
   }).join('');
 }
 function passageDueIds(){ const t=todayKey(); return passageList().filter(p=>p.state!=='hist' && p.next<=t).map(p=>p.id); }
@@ -3643,6 +3648,25 @@ function markPassage(good){
   else renderPf();
 }
 function closePf(){ const m=document.getElementById('pfMask'); if(m)m.classList.remove('show'); currentPfId=null; }
+/* v386b：短文查看浮层（与闪卡 openCardModal 同款卡片样式）*/
+function openPassageModal(id){
+  const p=store.passages[id]; if(!p)return;
+  closePassageModal();
+  const st=p.state==='hist'?'<span class="tag" style="background:#F0EBFF;color:#7A4FD0">已掌握</span>':p.state==='wrong'?'<span class="tag" style="background:#FDECEA;color:#E0492F">待复习</span>':'<span class="tag" style="background:#EAF3FF;color:#2F7FE0">新短文</span>';
+  const d=document.createElement('div'); d.id='passageModal'; d.className='card-modal';
+  d.setAttribute('onclick',"if(event.target===this)closePassageModal()");
+  d.innerHTML=`<div class="cm-sheet">
+    <button class="cm-close" onclick="closePassageModal()">✕</button>
+    <div class="cm-tags">${st}</div>
+    <div class="pm-text">${esc(p.text)}</div>
+    ${p.cn?`<div class="pm-cn">${esc(p.cn)}</div>`:''}
+    <div style="display:flex;gap:12px;margin-top:18px">
+      <button class="btn btn-blue" style="flex:1" onclick="speakText(passageText('${id}'))">🔊 朗读整段</button>
+    </div>
+  </div>`;
+  document.body.appendChild(d);
+}
+function closePassageModal(){const m=document.getElementById('passageModal');if(m)m.remove();}
 function openEdit(id){
   editId=id;const c=store.cards[id];editSrc=c.src;
   document.getElementById('editTitle').textContent=c.state==='raw'?'补全闪卡信息':'编辑闪卡';
@@ -6937,7 +6961,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v386';
+const APP_VER='v387';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

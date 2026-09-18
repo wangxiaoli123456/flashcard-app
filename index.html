@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789707130000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789708157000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -660,7 +660,6 @@ window.addEventListener('unhandledrejection',function(e){});
     <div class="page" id="page-review">
         <!-- v322：主按钮上移置顶（原在最底部），并按「今晚必做 / 加练」分组 -->
         <button class="btn btn-green btn-block" onclick="startAll()" style="margin-bottom:4px">🌙 一键开始今晚复习（按顺序）</button>
-        <button class="btn btn-purple btn-block" onclick="startPassageReview()" style="margin-bottom:4px">📖 复习短文（单独一项）</button>
         <div class="grp"><span class="dot"></span>今晚必做 · 按顺序 <em>不做会断档</em></div>
         <div class="pool pool-new" data-pool="new">
             <div class="pool-toggle">
@@ -709,6 +708,14 @@ window.addEventListener('unhandledrejection',function(e){});
             </div>
             <button class="btn btn-blue btn-sm pbtn" onclick="startPool('hist')">开始</button>
         </div>
+        <div class="pool" style="background:linear-gradient(135deg,#F3ECFF,#E9DDFF)">
+            <div class="pool-toggle">
+                <h3>📖 ④ 短文 · 整篇阅读</h3>
+                <div class="bignum" style="color:#7A4FD0"><span id="cntPassage" style="cursor:pointer" title="点击查看" onclick="startPassageReview()">0</span><small>篇今天读</small></div>
+                <div class="mini">已掌握 <b><span id="cntPassageHist">0</span></b> 篇 · 今天已读 <b><span id="cntPassageDone">0</span></b>/3</div>
+            </div>
+            <button class="btn btn-purple btn-sm pbtn" onclick="startPassageReview()">开始</button>
+        </div>
         <div class="grp play"><span class="dot"></span>加练 · 随时可玩 <em>可选，不做不断档</em></div>
         <div class="pool" style="background:linear-gradient(135deg,#FFF1F5,#FFE4EC);">
             <h3>🎵 听音选词 <span style="font-size:12px;color:#B0708A;font-weight:700">四选一选图</span></h3>
@@ -755,6 +762,13 @@ window.addEventListener('unhandledrejection',function(e){});
                     <div>· 会升一级 · 不会降一级</div>
                     <div>· L1 再错回错题池 · L6 归档</div>
                 </div>
+                <div class="rb-sec"><b>📖 ④ 短文</b>
+                    <div>· 新短文当天可读，连续 <b>2 次「会」</b>算掌握</div>
+                    <div>· 第 1 次「会」≠过关，次日再来确认一次</div>
+                    <div>· 点「不会」明天再来，连对中断重新数</div>
+                    <div>· 掌握后隔 <b>7 / 15 / 30 天</b>复现，越拉越长</div>
+                    <div>· 每天最多复习 <b>3 篇</b></div>
+                </div>
             </div>
         </div>
         <div class="card" style="margin-top:14px">
@@ -763,6 +777,7 @@ window.addEventListener('unhandledrejection',function(e){});
                 <div class="rp-row"><span>错题复习</span><b id="rpWrong">-</b></div>
                 <div class="rp-row"><span>当日新词</span><b id="rpNew">-</b></div>
                 <div class="rp-row"><span>老词复习</span><b id="rpHist">-</b></div>
+                <div class="rp-row"><span>短文复习</span><b id="rpPassage">-</b></div>
             </div>
             <div class="sub" id="rpEmpty" style="text-align:center;padding:10px">今晚还没复习，完成后自动生成</div>
         </div>
@@ -773,9 +788,10 @@ window.addEventListener('unhandledrejection',function(e){});
       <div class="pf-card">
         <div class="pf-top"><span id="pfCount">短文复习</span><button class="pg-mini pg-del" onclick="closePf()">✕</button></div>
         <div id="pfText" class="pf-text"></div>
-        <div id="pfCn" class="pf-cn"></div>
+        <div id="pfCn" class="pf-cn" style="display:none"></div>
         <div class="pf-bot">
           <button class="btn btn-ghost" onclick="markPassage(false)">😐 不会</button>
+          <button class="btn btn-purple btn-sm" id="pfCnBtn" onclick="togglePfCn()">👀 看中文</button>
           <button class="btn btn-green" onclick="markPassage(true)">👍 会</button>
         </div>
       </div>
@@ -1361,6 +1377,7 @@ const PACKAUDIO={"are":"","here_s":"","tent":"","bump":"","wrists":"","yucky":""
 <script>/* ===== 数据层 ===== */
 const KEY='kidEng_v5';
 let store=load();
+if(!store.stats)store.stats={}; if(!store.stats.passage)store.stats.passage={date:'',count:0};
 let storeSaveFail=false;
 /* ===== v6 记忆系统：数据迁移（boot 阶段，cards 就绪后执行） ===== */
 function migrateV6(){
@@ -1452,7 +1469,7 @@ function markDirty(id,fields){ const c=store.cards[id]; if(!c)return; c._dirty=c
 /* 第二刀：cards 主数据入 IndexedDB（容量 5MB → 数百MB），元数据仍存 localStorage */
 function saveNow(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({today:store.today,log:store.log,batch:store.batch,batchDate:store.batchDate,ver:store.ver,deletedIds:store.deletedIds||[],passages:store.passages||{}}));
+    localStorage.setItem(KEY,JSON.stringify({today:store.today,log:store.log,batch:store.batch,batchDate:store.batchDate,ver:store.ver,deletedIds:store.deletedIds||[],passages:store.passages||{},stats:store.stats||{}}));
     storeSaveFail=false;
   }catch(e){storeSaveFail=true;showStorageWarn();}
   idbPutCards(store.cards);
@@ -3614,10 +3631,30 @@ function renderPassagePage(){
       +'<button class="pg-mini pg-del" onclick="event.stopPropagation();delPassage(\''+p.id+'\')">🗑</button></div></div>';
   }).join('');
 }
-function passageDueIds(){ const t=todayKey(); return passageList().filter(p=>p.state!=='hist' && p.next<=t).map(p=>p.id); }
+const PASSAGE_DAILY_MAX=3; // v387b：短文每天最多复习 3 篇
+function passageNextDay(nights){ return [0,7,15,30,30,30][nights]||30; } // 掌握层级间隔：L1=7 L2=15 L3=30(之后保持30)
+function passageReadToday(){ const t=todayKey(); const s=store.stats&&store.stats.passage; if(s&&s.date===t)return s.count||0; return 0; }
+function passageRemainToday(){ return Math.max(0,PASSAGE_DAILY_MAX-passageReadToday()); }
+function passageBumpRead(){ const t=todayKey(); if(!store.stats)store.stats={}; if(!store.stats.passage)store.stats.passage={}; const s=store.stats.passage; if(s.date!==t){s.date=t;s.count=0;} s.count++; store.stats.passage=s; }
+function passageDueIds(){
+  const t=todayKey();
+  // v387b：到期即可复习（含已掌握的复现）——修复「掌握即永久消失」的坑
+  const due=passageList().filter(p=>(p.next||'')<=t).map(p=>p.id);
+  due.sort((a,b)=>{
+    const pa=store.passages[a],pb=store.passages[b];
+    const wa=(pa.state==='hist')?1:0, wb=(pb.state==='hist')?1:0; // 未掌握优先于已掌握复现
+    if(wa!==wb)return wa-wb;
+    return (pa.next||'').localeCompare(pb.next||''); // 同组按最久未看先来
+  });
+  return due.slice(0,passageRemainToday()); // 每天上限 3 篇
+}
 function startPassageReview(){
   const due=passageDueIds();
-  if(!due.length){ showToast('今天没有待复习的短文 🎉'); return; }
+  if(!due.length){
+    if(passageReadToday()>=PASSAGE_DAILY_MAX) showToast('今天短文已读够 3 篇啦 🎉');
+    else showToast('今天没有待复习的短文 🎉');
+    return;
+  }
   pfQueue=due; pfIdx=0; currentPfId=null;
   renderPf();
   const m=document.getElementById('pfMask'); if(m)m.classList.add('show');
@@ -3626,22 +3663,31 @@ function renderPf(){
   const id=pfQueue[pfIdx]; if(!id){ closePf(); return; }
   currentPfId=id; const p=store.passages[id]; if(!p){ pfIdx++; if(pfIdx<pfQueue.length)renderPf(); else closePf(); return; }
   const tEl=document.getElementById('pfText'); if(tEl)tEl.textContent=p.text;
-  const cEl=document.getElementById('pfCn'); if(cEl)cEl.textContent=p.cn||'';
-  const cEl2=document.getElementById('pfCount'); if(cEl2)cEl2.textContent=(pfIdx+1)+'/'+pfQueue.length+' · '+(p.state==='hist'?'已掌握':p.state==='wrong'?'复习':'新短文');
+  const cEl=document.getElementById('pfCn'); if(cEl){ cEl.textContent=p.cn||''; cEl.style.display='none'; } // v387b：中文默认藏起来，逼孩子先读英文
+  const btn=document.getElementById('pfCnBtn'); if(btn)btn.textContent='👀 看中文';
+  const cEl2=document.getElementById('pfCount'); if(cEl2)cEl2.textContent=(pfIdx+1)+'/'+pfQueue.length+' · '+(p.state==='hist'?'复现':p.state==='wrong'?'复习':'新短文');
   speakText(p.text);
 }
+function togglePfCn(){ const c=document.getElementById('pfCn'); const b=document.getElementById('pfCnBtn'); if(!c)return; if(c.style.display==='none'){c.style.display='block';if(b)b.textContent='🙈 藏中文';} else {c.style.display='none';if(b)b.textContent='👀 看中文';} }
 function markPassage(good){
   if(!currentPfId)return;
   const p=store.passages[currentPfId]; if(!p)return;
   const t=todayKey();
   if(good){
-    p.streak=(p.streak||0)+1;
-    if(p.streak>=3){ p.state='hist'; p.next=addDays(t,7); showToast('✅ 已掌握，进入长期记忆'); }
-    else { p.next=addDays(t,1); }
+    if(p.state==='hist'){
+      p.nights=Math.min((p.nights||1)+1,3); p.next=addDays(t,passageNextDay(p.nights));
+      showToast('✅ 记得住，间隔拉长到 '+passageNextDay(p.nights)+' 天');
+    } else {
+      p.streak=(p.streak||0)+1; // v387b：无需单独 confirm 字段——第1次会→明天再来确认，第2次会→掌握，自然实现隔夜确认
+      if(p.streak>=2){ p.state='hist'; p.nights=1; p.next=addDays(t,passageNextDay(1)); showToast('✅ 已掌握，进入长期记忆'); }
+      else { p.next=addDays(t,1); showToast('👍 不错，明天再来确认'); }
+    }
   } else {
-    p.streak=0; p.state='wrong'; p.poolDate=t; p.next=addDays(t,1); showToast('📌 已记下，明天再来');
+    p.streak=0; p.state='wrong'; p.next=addDays(t,1); showToast('📌 已记下，明天再来');
   }
-  markPassageDirty(currentPfId,['state','streak','next','confirm','poolDate']);
+  p.confirm=false;
+  markPassageDirty(currentPfId,['state','streak','next','nights','confirm']);
+  passageBumpRead(); // v387b：记今天已读篇数，配合每日上限
   save();
   pfIdx++;
   if(pfIdx>=pfQueue.length){ closePf(); showToast('🎉 短文复习完成'); renderPassagePage(); }
@@ -4503,6 +4549,12 @@ function renderReviewPage(){
   const cnf=document.getElementById('cntConfirm');if(cnf)cnf.textContent=nConfirm;
   const cntHist=document.getElementById('cntHist');if(cntHist)cntHist.textContent=hCnt;
   const chAll=document.getElementById('cntHistAll');if(chAll)chAll.textContent=hAll;
+  const pDue=passageDueIds().length;
+  const pHist=passageList().filter(p=>p.state==='hist').length;
+  const pDone=passageReadToday();
+  const cp=document.getElementById('cntPassage');if(cp)cp.textContent=pDue;
+  const cph=document.getElementById('cntPassageHist');if(cph)cph.textContent=pHist;
+  const cpd=document.getElementById('cntPassageDone');if(cpd)cpd.textContent=pDone;
   const cntMaster=document.getElementById('cntMaster');if(cntMaster)cntMaster.textContent=mCnt;
   const archCnt=Object.keys(store.cards).filter(id=>{const c=store.cards[id];return c&&c.arch&&c.en;}).length;
   const caEl=document.getElementById('cntArch');if(caEl)caEl.textContent=archCnt;
@@ -4522,6 +4574,7 @@ function renderReviewPage(){
     document.getElementById('report').classList.remove('show');
     document.getElementById('rpEmpty').style.display='block';
   }
+  const rpp=document.getElementById('rpPassage'); if(rpp)rpp.textContent = passageReadToday()?('已读 '+passageReadToday()+' 篇'):'-';
 }
 
 /* ===== 听音模块：音效（Web Audio 合成，无外部依赖） ===== */
@@ -4770,6 +4823,8 @@ function startAll(){
   confirmDue().forEach(id=>q.push({id,pool:'confirm'})); // 仅隔夜确认，当天判会的不立刻复考
   wrongDue().forEach(id=>q.push({id,pool:'wrong'})); // 错题池：与「错题池·开始」一致，全部到期错题，不设上限（取消20张防洪闸）
   shuffle(histDue()).forEach(id=>q.push({id,pool:'hist'}));
+  // v387b：④ 短文排在第 4 位。前三项翻卡结束后，翻卡浮层关闭并自动切到短文整篇阅读界面
+  if(passageDueIds().length) q.push({id:null,pool:'passage'});
   lastReviewQueueIds=[...new Set(q.map(it=>it.id))]; lastReviewDate=t; // v296：B 记录今晚复习过的词，供「复习磨耳朵」复读
   if(!q.length){showToast('还没有可复习的卡，先去素材库/新词页');return;}
   fsQueue=q;fsIdx=0;fsPool='all';fsOpen(fsQueue,fsIdx);
@@ -4786,7 +4841,9 @@ let lastReviewQueueIds=[]; let lastReviewDate=''; // v296：B 记录今晚复习
 let newRep={}; // v211：新词三遍临时状态（整体循环3次，错1次打回后跳过后续轮份）
 function renderFs(){
   clearTimeout(_lspkTimer); // v341：切题即作废上一题挂起的自动发音，避免「上一题的音在新题上冒出来」
-  const it=fsQueue[fsIdx];if(!it){closeFs();return;}
+  const it=fsQueue[fsIdx];
+  if(it&&it.pool==='passage'){ closeFs(); startPassageReview(); return; } // v387b：④ 短文——翻卡结束后自动切整篇阅读
+  if(!it){closeFs();return;}
   const c=store.cards[it.id];
   if(!c){ // v304：队列中残留已删除的卡 → 跳过前进，绝不崩（原实现后续 c.en 直接 TypeError）
     const _ni=fsIdx+1;
@@ -6961,7 +7018,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v387';
+const APP_VER='v388';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

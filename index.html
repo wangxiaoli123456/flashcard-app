@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789708602000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789709667000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3629,16 +3629,46 @@ function renderPassagePage(){
   const lc=document.getElementById('pgListCount'); if(lc)lc.textContent=list.length;
   const wrap=document.getElementById('pgList'); if(!wrap)return;
   if(!list.length){ wrap.innerHTML='<div class="pg-empty">还没有短文，粘贴一段英文保存吧</div>'; return; }
-  const sorted=list.slice().sort((a,b)=>(b.created||'').localeCompare(a.created||''));
-  wrap.innerHTML=sorted.map(p=>{
+  // v389b：按 created 日期分组（月份 → 日期），与小小优趣/适趣卡组一致
+  const byDate={};
+  list.forEach(p=>{ const d=(p.created||'').slice(0,10); if(!d)return; const ym=d.slice(0,7); (byDate[ym]=byDate[ym]||{}); (byDate[ym][d]=byDate[ym][d]||[]).push(p); });
+  const ymKeys=Object.keys(byDate).sort((a,b)=>a<b?1:-1); // 当月在上
+  const curYM=todayKey().slice(0,7), curDay=todayKey();
+  const itemHtml=p=>{
     const tag = p.state==='hist'?'<span class="pg-item-tag pg-tag-hist">已掌握</span>'
       : p.state==='wrong'?'<span class="pg-item-tag pg-tag-wrong">待复习</span>'
       : '<span class="pg-item-tag pg-tag-new">新</span>';
     const snippet=(p.text||'').slice(0,80)+(p.text&&p.text.length>80?'…':'');
     return '<div class="pg-item" onclick="openPassageModal(\''+p.id+'\')"><div class="pg-item-t"><div class="pg-item-en">'+esc(snippet)+tag+'</div>'+(p.cn?'<div class="pg-item-cn">'+esc(p.cn)+'</div>':'')+'</div>'
       +'<div class="pg-item-btns"><button class="pg-mini pg-play" onclick="event.stopPropagation();speakText(passageText(\''+p.id+'\'))">🔊</button>'
-      +'<button class="pg-mini pg-del" onclick="event.stopPropagation();delPassage(\''+p.id+'\')">🗑</button></div></div>';
-  }).join('');
+      +'<button class="pg-mini pg-del" onclick="event.stopPropagation();delPassage(\''+p.id+'\');renderPassagePage();">🗑</button></div></div>';
+  };
+  wrap.innerHTML='';
+  ymKeys.forEach(ym=>{
+    const days=byDate[ym];
+    const dayKeys=Object.keys(days).sort((a,b)=>a<b?1:-1); // 同月内日期倒序
+    const mTotal=dayKeys.reduce((s,d)=>s+days[d].length,0);
+    const mOpen = ym===curYM;
+    const mf=document.createElement('div');
+    mf.className='card fold'+(mOpen?' open':'');
+    mf.innerHTML='<div class="fold-h"><div><span style="font-size:18px">📅</span> <span style="color:var(--blue-dark)">'+esc(ym.slice(0,4)+'年'+Number(ym.slice(5))+'月')+'</span></div><div class="fold-meta"><span class="fold-n">'+mTotal+'篇</span><span class="fold-t">'+(mOpen?'▲':'▼')+'</span></div></div><div class="fold-b"></div>';
+    const mbody=mf.querySelector('.fold-b');
+    dayKeys.forEach(d=>{
+      const arr=days[d].slice().sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+      const label=Number(d.split('-')[1])+'月'+Number(d.split('-')[2])+'日';
+      const dOpen = d===curDay;
+      const df=document.createElement('div');
+      df.className='fold'+(dOpen?' open':'');
+      df.style.cssText='margin-top:6px;';
+      df.innerHTML='<div class="fold-h"><div><span style="font-size:15px;font-weight:800;color:var(--blue-dark)">'+esc(label)+'</span></div><div class="fold-meta"><span class="fold-n">'+arr.length+'篇</span><span class="fold-t">'+(dOpen?'▲':'▼')+'</span></div></div><div class="fold-b"></div>';
+      const dbody=df.querySelector('.fold-b');
+      arr.forEach(p=>{ const tmp=document.createElement('div'); tmp.innerHTML=itemHtml(p); dbody.appendChild(tmp.firstChild); });
+      df.querySelector('.fold-h').onclick=()=>{ const o=df.classList.toggle('open'); df.querySelector('.fold-t').textContent=o?'▲':'▼'; };
+      mbody.appendChild(df);
+    });
+    mf.querySelector('.fold-h').onclick=()=>{ const o=mf.classList.toggle('open'); mf.querySelector('.fold-t').textContent=o?'▲':'▼'; };
+    wrap.appendChild(mf);
+  });
 }
 const PASSAGE_DAILY_MAX=3; // v387b：短文每天最多复习 3 篇
 function passageNextDay(nights){ return [0,7,15,30,30,30][nights]||30; } // 掌握层级间隔：L1=7 L2=15 L3=30(之后保持30)
@@ -3675,7 +3705,7 @@ function renderPf(){
   const cEl=document.getElementById('pfCn'); if(cEl){ cEl.textContent=p.cn||''; cEl.style.display='none'; } // v387b：中文默认藏起来，逼孩子先读英文
   const btn=document.getElementById('pfCnBtn'); if(btn)btn.textContent='👀 看中文';
   const cEl2=document.getElementById('pfCount'); if(cEl2)cEl2.textContent=(pfIdx+1)+'/'+pfQueue.length+' · '+(p.state==='hist'?'复现':p.state==='wrong'?'复习':'新短文');
-  speakText(p.text);
+  // v389b：不再自动朗读，整篇交给用户自己点顶部 🔊 读（已传 pfSpeak）
 }
 function togglePfCn(){ const c=document.getElementById('pfCn'); const b=document.getElementById('pfCnBtn'); if(!c)return; if(c.style.display==='none'){c.style.display='block';if(b)b.textContent='🙈 藏中文';} else {c.style.display='none';if(b)b.textContent='👀 看中文';} }
 function markPassage(good){
@@ -7028,7 +7058,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v389';
+const APP_VER='v390';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

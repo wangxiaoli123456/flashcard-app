@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789712133000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789745056000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -614,9 +614,9 @@ window.addEventListener('unhandledrejection',function(e){});
             <button class="btn btn-green btn-block" onclick="savePassage()">保存到短文</button>
             <div class="pg-tip">一段=一篇；可带中文便于理解，点读时只朗读英文。</div>
           </div>
-          <button class="btn btn-purple btn-block" style="margin:0 0 14px" onclick="startPassageReview()">📖 复习短文（单独一项）</button>
           <div class="pg-card">
             <div class="pg-card-t">📚 已传短文（<span id="pgListCount">0</span>） <span class="muted" id="pgCount" style="font-weight:400;font-size:13px"></span></div>
+            <div class="pg-tip" style="margin:0 0 10px">复习短文：底部「复习」页 → 一键复习（第④项就是短文）</div>
             <div id="pgList" class="pg-list"></div>
           </div>
         </div>
@@ -7059,7 +7059,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v391';
+const APP_VER='v392';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7329,18 +7329,14 @@ async function syncPull(silent){
         });
       } else { console.warn('[syncPull清理哨兵] 云端缺失 '+missing+'/本地 '+localN+'，疑似异常，跳过删除清理'); }
     }
-    // v386：短文同逻辑全量清理（云端全集索引里没有的本地短文，且曾同步过 → 清理）
-    {
-      const localP=Object.keys(store.passages).length;
-      const missingP=Object.keys(store.passages).filter(id=>!cloudCardIds.has(id)).length;
-      if(localP===0 || missingP<=Math.max(3,Math.floor(localP*0.5))){
-        Object.keys(store.passages).forEach(id=>{
-          const p=store.passages[id];
-          if(!p || cloudCardIds.has(id) || !p._syncAt) return;
-          delete store.passages[id];
-        });
-      } else { console.warn('[syncPull短文清理哨兵] 云端缺失 '+missingP+'/本地 '+localP+'，疑似异常，跳过'); }
-    }
+    // v392【修数据误删·重要】撤掉"短文孤儿清理"（原 v386 逻辑：云端索引里没有就删本地短文）。
+    // 真因：该块没跟着卡片一起限定在"全量校准轮"，每轮增量同步都会跑；而增量轮的 idx 只含
+    // 最近变化行、通常是空数组 → cloudCardIds 为空 → 判定"云端没有这篇短文" → 把刚推上去的短文删掉。
+    // 表现：今天刚传的短文推成功后，下一轮心跳(约30s)就被本地静默删除，页面显示"已传短文(0)"，
+    // 但因为没写墓碑，云端那行还在 → 下个全量轮又被拉回来 → 反复"有→没了→又有"。
+    // 修法：短文的跨端删除已由 delPassage 写墓碑 + 下面"墓碑驱动删除"可靠承担（v367 同款结论：
+    // 卡片侧正是因为"云端暂时缺卡就删本地"丢过数据才撤掉的），短文数量少且全部用户手写，更需要保守。
+    // 因此这里不再做任何"云端没有就删本地"的推断式清理，宁可再生同步、绝不误删。
     // v382：删除传播改「墓碑驱动」——云端 deleted 列表标了删除的 id，本地若有(且曾同步过)就删。
     // 原因：增量同步拿不到云端全集，"云端无此卡则清"不再可靠；墓碑是可靠的跨端删除信号。
     if(cloudDeleted.size){

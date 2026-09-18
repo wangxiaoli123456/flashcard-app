@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789708157000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789708602000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -396,14 +396,14 @@ window.addEventListener('unhandledrejection',function(e){});
     .pg-mini{font-size:12px;padding:5px 9px;border-radius:9px;border:none;font-weight:700;cursor:pointer;}
     .pg-play{background:#eaf3ff;color:#2f7fe0;} .pg-del{background:#fdecea;color:#e0492f;}
     .pg-empty{font-size:13px;color:#aab4c2;text-align:center;padding:14px 0;}
-    /* v386：短文复习浮层 */
-    .pf-card{background:#fff;width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:22px 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box;}
-    .pf-top{display:flex;justify-content:space-between;align-items:center;color:#8a98ad;font-size:13px;font-weight:700;margin-bottom:14px;}
-    .pf-text{font-size:22px;line-height:1.6;font-weight:800;color:#1a2740;white-space:pre-wrap;word-break:break-word;}
-    .pf-cn{font-size:15px;color:#6b7889;margin-top:10px;line-height:1.5;white-space:pre-wrap;}
+    /* v389：短文复习＝整面全屏（复用闪卡的 .fs 外壳）；正文区可滚动、内容少时垂直居中 */
+    .pf-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;padding:18px 22px 10px;background:#fff;}
+    .pf-inner{margin:auto 0;width:100%;}
+    .pf-text{font-size:clamp(20px,5.6vw,27px);line-height:1.62;font-weight:800;color:#1a2740;white-space:pre-wrap;word-break:break-word;}
+    .pf-cn{font-size:16px;color:#6b7889;margin-top:14px;padding-top:12px;border-top:1px dashed #E3ECF8;line-height:1.6;white-space:pre-wrap;word-break:break-word;}
     .pm-text{font-size:22px;line-height:1.6;font-weight:800;color:#1a2740;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;}
     .pm-cn{font-size:15px;color:#6b7889;margin-top:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
-    .pf-bot{display:flex;gap:12px;margin-top:22px;}
+    .pf-bot{display:flex;gap:10px;width:100%;}
     .pf-bot .btn{flex:1;}
 </style>
 <script src="https://beacon.cdn.qq.com/sdk/4.5.9/beacon_web.min.js"></script>
@@ -783,15 +783,24 @@ window.addEventListener('unhandledrejection',function(e){});
         </div>
     </div>
 
-    <!-- 页4：进度 -->
-    <div id="pfMask" class="mask">
-      <div class="pf-card">
-        <div class="pf-top"><span id="pfCount">短文复习</span><button class="pg-mini pg-del" onclick="closePf()">✕</button></div>
-        <div id="pfText" class="pf-text"></div>
-        <div id="pfCn" class="pf-cn" style="display:none"></div>
+    <!-- 页4：短文复习（v389：改成与闪卡同款「整面全屏」，不再是底部弹出的对话框） -->
+    <div class="fs" id="pfMask">
+      <div class="fs-top">
+        <button onclick="closePf()">✕</button>
+        <span class="fs-title">📖 短文复习</span>
+        <span class="fs-count" id="pfCount">1/1</span>
+        <button onclick="pfSpeak()">🔊</button>
+      </div>
+      <div class="pf-body">
+        <div class="pf-inner">
+          <div id="pfText" class="pf-text"></div>
+          <div id="pfCn" class="pf-cn" style="display:none"></div>
+        </div>
+      </div>
+      <div class="fs-bottom">
         <div class="pf-bot">
           <button class="btn btn-ghost" onclick="markPassage(false)">😐 不会</button>
-          <button class="btn btn-purple btn-sm" id="pfCnBtn" onclick="togglePfCn()">👀 看中文</button>
+          <button class="btn btn-purple" id="pfCnBtn" onclick="togglePfCn()">👀 看中文</button>
           <button class="btn btn-green" onclick="markPassage(true)">👍 会</button>
         </div>
       </div>
@@ -3693,7 +3702,8 @@ function markPassage(good){
   if(pfIdx>=pfQueue.length){ closePf(); showToast('🎉 短文复习完成'); renderPassagePage(); }
   else renderPf();
 }
-function closePf(){ const m=document.getElementById('pfMask'); if(m)m.classList.remove('show'); currentPfId=null; }
+function closePf(){ const m=document.getElementById('pfMask'); if(m)m.classList.remove('show'); currentPfId=null; try{ if(window.speechSynthesis)speechSynthesis.cancel(); }catch(e){} }
+function pfSpeak(){ try{ if(currentPfId) speakText(passageText(currentPfId)); }catch(e){} } // v389：整面复习页顶部 🔊 重读整篇
 /* v386b：短文查看浮层（与闪卡 openCardModal 同款卡片样式）*/
 function openPassageModal(id){
   const p=store.passages[id]; if(!p)return;
@@ -7018,7 +7028,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v388';
+const APP_VER='v389';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

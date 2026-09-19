@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789828829000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789829364000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -772,8 +772,9 @@ window.addEventListener('unhandledrejection',function(e){});
                     <div>· L1 再错回错题池 · L6 归档</div>
                 </div>
                 <div class="rb-sec"><b>📖 ④ 短文</b>
-                    <div>· 新短文当天可读，连续 <b>2 次「会」</b>算掌握</div>
-                    <div>· 第 1 次「会」≠过关，次日再来确认一次</div>
+                    <div>· 上传后 <b>前 7 天每天都会出现</b>（不锁、不毕业）</div>
+                    <div>· 第 7 天之后：连续 <b>2 次「会」</b>才算掌握</div>
+                    <div>· 前 7 天内连点「会」也只推到明天，不毕业</div>
                     <div>· 点「不会」明天再来，连对中断重新数</div>
                     <div>· 掌握后隔 <b>7 / 15 / 30 天</b>复现，越拉越长</div>
                     <div>· 每天最多复习 <b>3 篇</b></div>
@@ -3692,8 +3693,13 @@ function passageRemainToday(){ return Math.max(0,PASSAGE_DAILY_MAX-passageReadTo
 function passageBumpRead(){ const t=todayKey(); if(!store.stats)store.stats={}; if(!store.stats.passage)store.stats.passage={}; const s=store.stats.passage; if(s.date!==t){s.date=t;s.count=0;} s.count++; store.stats.passage=s; }
 function passageDueIds(){
   const t=todayKey();
-  // v387b：到期即可复习（含已掌握的复现）——修复「掌握即永久消失」的坑
-  const due=passageList().filter(p=>(p.next||'')<=t).map(p=>p.id);
+  // v396：上传后前7天每天必然出现(不锁不毕业)；7天后按到期(含已掌握复现)
+  const due=[];
+  passageList().forEach(p=>{
+    const within7 = dayDiff(t, p.created||t) < 7;
+    if(within7 && p.state!=='hist') due.push(p.id);        // 前7天：每天出现，未掌握
+    else if((p.next||'')<=t) due.push(p.id);               // 7天后：按到期(含复现)
+  });
   due.sort((a,b)=>{
     const pa=store.passages[a],pb=store.passages[b];
     const wa=(pa.state==='hist')?1:0, wb=(pb.state==='hist')?1:0; // 未掌握优先于已掌握复现
@@ -3727,20 +3733,22 @@ function markPassage(good){
   if(!currentPfId)return;
   const p=store.passages[currentPfId]; if(!p)return;
   const t=todayKey();
+  const within7 = dayDiff(t, p.created||t) < 7; // v396：上传后前7天，不毕业、每天出现
   if(good){
     if(p.state==='hist'){
       p.nights=Math.min((p.nights||1)+1,3); p.next=addDays(t,passageNextDay(p.nights));
       showToast('✅ 记得住，间隔拉长到 '+passageNextDay(p.nights)+' 天');
     } else {
-      p.streak=(p.streak||0)+1; // v387b：无需单独 confirm 字段——第1次会→明天再来确认，第2次会→掌握，自然实现隔夜确认
-      if(p.streak>=2){ p.state='hist'; p.nights=1; p.next=addDays(t,passageNextDay(1)); showToast('✅ 已掌握，进入长期记忆'); }
-      else { p.next=addDays(t,1); showToast('👍 不错，明天再来确认'); }
+      if(!within7 && !p.window7done){ p.window7done=true; p.streak=0; } // 跨过7天窗口：连对计数从头算
+      p.streak=(p.streak||0)+1;
+      if(!within7 && p.streak>=2){ p.state='hist'; p.nights=1; p.next=addDays(t,passageNextDay(1)); showToast('✅ 已掌握，进入长期记忆'); }
+      else { p.next=addDays(t,1); showToast(within7?'👍 不错，明天继续':'👍 不错，明天再来确认'); }
     }
   } else {
     p.streak=0; p.state='wrong'; p.next=addDays(t,1); showToast('📌 已记下，明天再来');
   }
   p.confirm=false;
-  markPassageDirty(currentPfId,['state','streak','next','nights','confirm']);
+  markPassageDirty(currentPfId,['state','streak','next','nights','confirm','window7done']);
   passageBumpRead(); // v387b：记今天已读篇数，配合每日上限
   save();
   pfIdx++;
@@ -7074,7 +7082,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v395';
+const APP_VER='v396';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

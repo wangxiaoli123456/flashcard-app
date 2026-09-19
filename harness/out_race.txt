@@ -1,0 +1,3 @@
+NEW running : {"stateAfter": "running", "oscillatorsCreated": 4}
+NEW suspended: {"stateAfter": "running", "oscillatorsCreated": 4}
+OLD suspended: {"stateAfter": "running", "oscillatorsCreated": 4}

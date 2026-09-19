@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789745056000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789782826000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -385,6 +385,10 @@ window.addEventListener('unhandledrejection',function(e){});
     .pg-ta{width:100%;min-height:110px;border:1.5px solid #e6ebf2;border-radius:12px;padding:10px;font-size:15px;line-height:1.5;resize:vertical;box-sizing:border-box;font-family:inherit;}
     .pg-input{width:100%;border:1.5px solid #e6ebf2;border-radius:12px;padding:10px;font-size:14px;margin-top:8px;box-sizing:border-box;font-family:inherit;}
     .pg-tip{font-size:12px;color:#8a98ad;margin-top:8px;line-height:1.5;}
+    .pg-mode{display:flex;align-items:center;gap:8px;margin:2px 0 10px;}
+    .pg-mode-lbl{font-size:13px;color:#8a98ad;font-weight:700;}
+    .pg-mode-btn{font-size:13px;font-weight:700;color:#6b7889;background:#f1f4f8;border:none;border-radius:999px;padding:6px 16px;cursor:pointer;-webkit-appearance:none;}
+    .pg-mode-btn.on{background:#6c5ce7;color:#fff;}
     .pg-list{display:flex;flex-direction:column;gap:10px;}
     .pg-item{display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #eef1f6;border-radius:12px;}
     .pg-item-t{flex:1;min-width:0;}
@@ -609,10 +613,15 @@ window.addEventListener('unhandledrejection',function(e){});
         <div id="libPassageWrap" style="display:none">
           <div class="pg-card" style="margin-bottom:14px">
             <div class="pg-card-t">➕ 上传小短文</div>
-            <textarea id="pgText" class="pg-ta" placeholder="粘贴英文小短文，空行分隔可一次传多篇…"></textarea>
+            <div class="pg-mode">
+              <span class="pg-mode-lbl">分篇</span>
+              <button class="pg-mode-btn on" id="pgModeWhole" onclick="setPgMode('whole')">整篇</button>
+              <button class="pg-mode-btn" id="pgModePara" onclick="setPgMode('para')">按段</button>
+            </div>
+            <textarea id="pgText" class="pg-ta" placeholder="粘贴英文小短文（整篇=1篇；按段时空行分多篇）…"></textarea>
             <input id="pgCn" class="pg-input" placeholder="中文意思（可选，整篇或逐句均可）" />
             <button class="btn btn-green btn-block" onclick="savePassage()">保存到短文</button>
-            <div class="pg-tip">一段=一篇；可带中文便于理解，点读时只朗读英文。</div>
+            <div class="pg-tip">整篇：整框=1篇（一首歌一篇）；按段：空行分多篇。点读时只朗读英文。</div>
           </div>
           <div class="pg-card">
             <div class="pg-card-t">📚 已传短文（<span id="pgListCount">0</span>） <span class="muted" id="pgCount" style="font-weight:400;font-size:13px"></span></div>
@@ -3612,13 +3621,18 @@ async function getPhonetic(en){
 let editId=null,editSrc='youqi',editAudio=null;
 /* ===== v386：小短文（独立集合，与闪卡完全隔离）===== */
 let currentPfId=null, pfQueue=[], pfIdx=0;
+let pgMode='whole'; // v393：短文分篇开关，默认整篇（一首歌=1篇）
+function setPgMode(m){ pgMode=m; const w=document.getElementById('pgModeWhole'), p=document.getElementById('pgModePara'); if(w)w.classList.toggle('on',m==='whole'); if(p)p.classList.toggle('on',m==='para'); }
 function speakText(t){ if(!t||!window.speechSynthesis)return; try{ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(t); u.lang='en-US'; u.rate=0.9; speechSynthesis.speak(u); }catch(e){} }
 function passageText(id){ const p=store.passages[id]; return p?p.text:''; }
 function savePassage(){
   const ta=document.getElementById('pgText'); const text=(ta&&ta.value||'').trim();
   if(!text){ showToast('请先粘贴英文短文'); return; }
   const cn=document.getElementById('pgCn').value.trim();
-  const paras=text.split(/\n\s*\n/).map(s=>s.trim()).filter(s=>s);
+  // v393：整篇=1篇；按段=空行分多篇
+  const paras = pgMode==='whole'
+    ? [text]
+    : text.split(/\n\s*\n/).map(s=>s.trim()).filter(s=>s);
   let n=0; paras.forEach(pp=>{ if(addPassage(pp,cn)) n++; });
   ta.value=''; const cni=document.getElementById('pgCn'); if(cni)cni.value='';
   showToast('✅ 已保存 '+n+' 篇'); renderPassagePage();
@@ -7059,7 +7073,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v392';
+const APP_VER='v393';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

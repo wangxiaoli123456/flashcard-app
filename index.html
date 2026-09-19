@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789829364000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789833826000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4647,22 +4647,31 @@ function sfx(kind){
   const ctx=ac();if(!ctx)return;
   try{
     const now=ctx.currentTime;
-    // v395：答对音整体降一个八度(523→392起)并加大音量——手机小喇叭对高频(原最高1046Hz)还原差，听起来像没声；降频后和答错低频音一样清晰可闻
+    // v395：答对音整体降一个八度(523→392起)——手机小喇叭对高频还原差
+    // v397：答对音波形由 sine 改为 triangle（与答错音同款）——sine 纯音能量集中在基频、小喇叭上还原弱听起来像没声；
+    //       triangle 含丰富谐波，在手机扬声器上明显更响（答错音一直用 triangle 且用户确认有声，故对齐）；音量 0.34→0.42；
+    //       首音 +0.03s 起音偏移，避免 AudioContext 刚 resume 时第一声被截断；四音上行仍是清晰"叮叮叮"
     const seq={ok:[392.00,523.25,659.25,783.99],bad:[220,174.61,146.83],start:[659.25,880],pop:[987.77,1318.5]};
     const freqs=seq[kind];if(!freqs)return;
     freqs.forEach((f,i)=>{
       const o=ctx.createOscillator(),g=ctx.createGain();
-      o.type=kind==='bad'?'triangle':'sine';
+      o.type='triangle';
       o.frequency.value=f;
-      const t=now+i*(kind==='bad'?0.22:0.11);
+      const t=now+0.03+i*(kind==='bad'?0.22:0.11);
       g.gain.setValueAtTime(0.0001,t);
-      g.gain.exponentialRampToValueAtTime(kind==='bad'?0.24:0.34,t+0.025);
+      g.gain.exponentialRampToValueAtTime(kind==='bad'?0.24:0.42,t+0.025);
       g.gain.exponentialRampToValueAtTime(0.0001,t+(kind==='bad'?0.4:0.5));
       o.connect(g);g.connect(ctx.destination);
       o.start(t);o.stop(t+0.55);
     });
   }catch(e){}
 }
+/* v397：iOS 必须在用户手势内创建/恢复 AudioContext 才能真正出声。
+   早期懒加载+sfx 内 resume 是异步的，首个振荡器可能落在 resume 完成前被丢弃 → 加练答对"叮叮叮"偶尔/常没声。
+   这里在首个 pointerdown/touchstart/click 就创建并 resume 全局 _actx，之后所有 sfx 复用已 running 的上下文，稳定出声。 */
+['pointerdown','touchstart','click'].forEach(function(ev){
+  document.addEventListener(ev,function(){try{ac();}catch(e){}},true);
+});
 function sayStart(text){
   sfx('start');
   if(!window.speechSynthesis)return;
@@ -5091,7 +5100,7 @@ function listenAnswer(good){
   const t=todayKey();
   const log=store.log[t]||(store.log[t]={});
   log.lRev=(log.lRev||0)+1;
-  if(good){log.lGood=(log.lGood||0)+1;listenGood++;sfx('ok');speakCurrent();} // v321：答对=提示音+立即播正确词确认
+  if(good){log.lGood=(log.lGood||0)+1;listenGood++;sfx('ok');setTimeout(speakCurrent,420);} // v321：答对=提示音+播正确词确认；v397：TTS 延后420ms，避免 iOS 上 speechSynthesis 启动把刚排好的"叮叮叮"振荡器音掐掉
   else{
     listenBad++;listenWrongIds.push(it.id);sfx('bad'); // v321：答错=提示音（与听音选词同一套 sfx 短音，纯振荡器非TTS，不污染iOS会话）
     // 听音答不上来 → 进错题池，次日（Day2）起才能答，隔天连对3次才出池
@@ -7082,7 +7091,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v396';
+const APP_VER='v397';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

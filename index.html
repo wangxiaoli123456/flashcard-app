@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789782826000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789783988000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -7073,7 +7073,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v393';
+const APP_VER='v394';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7242,8 +7242,16 @@ async function syncPull(silent){
     // 真因：卡片内嵌 imgData(约 88KB/张 × 246 张) → 原「全量拉 data」每轮约 20MB；
     // 30s 心跳一天就是几十 GB，直接打爆 Supabase 免费版 5GB/月 出网额度 → 后端限流 →
     // 表现为"同步时好时坏/超时/图时有时无"。改增量后每轮仅传几十 KB(降约 200 倍)。
-    const {data:meta,error:me}=await withTimeout(
-      sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉元数据');
+    // v394：拉元数据是同步第一步。单轮超时直接判失败体验差（尤其国内访问 supabase.co 偶发抖动），
+    // 改为最多重试 2 次（退避后重试），网络偶尔抖动能自己缓过来；仍失败才抛错走下方分类提示。
+    let meta=null, me=null;
+    for(let _k=0;_k<2;_k++){
+      const _r=await withTimeout(
+        sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉元数据');
+      me=_r.error; meta=_r.data;
+      if(!me)break;
+      await new Promise(_r=>setTimeout(_r,800));
+    }
     if(me)throw me;
     // v382【省流量·根治】卡片索引走"增量拉取"：默认只拉上次水位之后变化的行（通常为空→几乎零流量），
     // 每 10 轮 / 本地为空时做一次全量校准。原来每轮全量拉 data(约 20MB) 是打爆免费流量的主因。
@@ -7379,7 +7387,7 @@ async function syncPull(silent){
     } else {
       lastSyncOkAt=Date.now(); sbStatus='已同步 ✓'; if(!silent) updateCloudUI();
     }
-  }catch(e){ sbStatus='同步失败：'+(e.message||e); if(!silent) updateCloudUI(); }
+  }catch(e){ const _m=(e&&e.message||String(e)); sbStatus = (_m.indexOf('超时')>=0||_m.indexOf('network')>=0||_m.indexOf('fetch')>=0||_m.indexOf('Failed to fetch')>=0) ? '⚠️ 连不上云端（网络/地区限制）·本地数据安全·换网络点「立即同步」' : '同步失败：'+_m; if(!silent) updateCloudUI(); }
   finally{ pulling=false; }
 }
 function cloudSig(){

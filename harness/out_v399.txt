@@ -1,0 +1,7 @@
+is_global_sfx = True
+has_OK_WAV    = False
+has_BAD_WAV   = False
+audio play() called count = 6
+play kinds (prefix)        = ['data:audio/wav;b', 'data:audio/wav;b', 'data:audio/wav;b', 'data:audio/wav;b', 'data:audio/wav;b', 'data:audio/wav;b']
+err_ok =  | err_bad = 
+RESULT: FAIL

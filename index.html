@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789783988000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789828829000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4639,7 +4639,8 @@ function sfx(kind){
   const ctx=ac();if(!ctx)return;
   try{
     const now=ctx.currentTime;
-    const seq={ok:[523.25,659.25,783.99,1046.5],bad:[220,174.61,146.83],start:[659.25,880],pop:[987.77,1318.5]};
+    // v395：答对音整体降一个八度(523→392起)并加大音量——手机小喇叭对高频(原最高1046Hz)还原差，听起来像没声；降频后和答错低频音一样清晰可闻
+    const seq={ok:[392.00,523.25,659.25,783.99],bad:[220,174.61,146.83],start:[659.25,880],pop:[987.77,1318.5]};
     const freqs=seq[kind];if(!freqs)return;
     freqs.forEach((f,i)=>{
       const o=ctx.createOscillator(),g=ctx.createGain();
@@ -4647,7 +4648,7 @@ function sfx(kind){
       o.frequency.value=f;
       const t=now+i*(kind==='bad'?0.22:0.11);
       g.gain.setValueAtTime(0.0001,t);
-      g.gain.exponentialRampToValueAtTime(kind==='bad'?0.22:0.26,t+0.025);
+      g.gain.exponentialRampToValueAtTime(kind==='bad'?0.24:0.34,t+0.025);
       g.gain.exponentialRampToValueAtTime(0.0001,t+(kind==='bad'?0.4:0.5));
       o.connect(g);g.connect(ctx.destination);
       o.start(t);o.stop(t+0.55);
@@ -7073,7 +7074,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v394';
+const APP_VER='v395';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789859789000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789860417000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -541,7 +541,7 @@ window.addEventListener('unhandledrejection',function(e){});
     <div id="errInfo" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#FF4444;color:#fff;padding:10px;font-size:13px;font-family:sans-serif;word-break:break-all;"></div>
     <!-- 更新条：唯一的合法升级通道。只做"重新加载"，绝不替换运行时，
          所以点它永远只会往新版本走，不可能退回老版本。 -->
-    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{if(window.__LATEST_VER__)sessionStorage.setItem('__upd_clicked__',window.__LATEST_VER__);}catch(e){}try{var u=location.href.split('#')[0].split('?')[0];location.replace(u+'?_r='+Date.now());}catch(e){location.reload(true);}">🔄 发现新版本，点此刷新</div>
+    <div id="updateBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;background:#2FB56B;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:9px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);" onclick="try{if(window.__LATEST_VER__)sessionStorage.setItem('__upd_clicked__',window.__LATEST_VER__);}catch(e){}try{sessionStorage.removeItem('__upd_attempted__');}catch(e){}try{var u=location.href.split('#')[0].split('?')[0];location.href=u+'?_r='+Date.now()+'&_r2='+Math.random().toString(36).slice(2);}catch(e){try{location.reload(true);}catch(e2){}}">🔄 发现新版本，点此刷新</div>
     <!-- v333 自我修复通道：如果发现"实际在跑的代码"比本页自带的旧（说明曾被云端整页覆盖过），
          就自动切到 index.html 的当前版本继续跑并停掉旧运行时，从根上杜绝"越更新越旧"。 -->
     <script id="self-heal">
@@ -7001,6 +7001,7 @@ function importPackAudio(){
 
 // v370：版本自动检测——启动时拉同目录 version.txt，若线上版本更新则自动带 cache-bust 刷新，
 // 根治「用户没强刷、一直跑旧版（如 v277）导致修复看不到效果」的问题。
+// v402：版本自动检测（loop-safe，根治手机上"老是跳"的死循环刷新）
 async function checkVersion(){
   try{
     const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),3000);
@@ -7008,10 +7009,21 @@ async function checkVersion(){
     clearTimeout(to);
     if(!t.ok)return;
     const v=(await t.text()).trim();
-    if(v && v!==APP_VER){
-      try{ showToast('发现新版本 '+v+'，正在更新…'); }catch(e){}
-      setTimeout(()=>{ const base=location.pathname.split('?')[0]; location.href=base+'?v='+encodeURIComponent(v)+(location.hash||''); }, 700);
-    }
+    if(!v)return;
+    var _n=function(x){x=String(x).replace(/^v/,'');var p=x.split('.');return (parseInt(p[0],10)||0)*10000+((parseInt(p[1],10)||0));};
+    if(_n(v)===_n(APP_VER)){ try{sessionStorage.removeItem('__upd_attempted__');}catch(e){} return; } // 已是最新→清guard，供下次更新
+    if(!(_n(v)>_n(APP_VER)))return; // 只处理更高版本
+    try{ window.__LATEST_VER__=v; }catch(e){}
+    // v402：loop-safe——同一更高版本只自动刷新一次；若刷新后仍旧版(手机/iOS缓存顽固或主屏WebApp快照)，
+    // 不再反复跳，改由绿色横幅让用户手动刷新，根治"老是跳"的死循环。
+    var attempted=null; try{ attempted=sessionStorage.getItem('__upd_attempted__'); }catch(e){}
+    if(attempted===v){ showUpdateBanner(); return; }
+    try{ sessionStorage.setItem('__upd_attempted__',v); }catch(e){}
+    try{ showToast('发现新版本 '+v+'，正在更新…'); }catch(e){}
+    setTimeout(function(){
+      var base=location.pathname.split('?')[0];
+      location.href=base+'?v='+encodeURIComponent(v)+'&_r='+Date.now()+(location.hash||'');
+    },700);
   }catch(e){ /* 离线/网络失败静默跳过，不影响功能 */ }
 }
 function boot(){
@@ -7124,7 +7136,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v401';
+const APP_VER='v402';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

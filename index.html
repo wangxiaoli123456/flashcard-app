@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789913628000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789946830000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -4768,6 +4768,7 @@ function startPool(pool){
     setTimeout(function(){ try{ preloadQueue(10); }catch(e){} },400); // v343：开局再预热后 10 题，长句不再临时抓
   }
   fsIdx=0;fsPool=pool;fsOpen(fsQueue,fsIdx);
+  if(pool==='listen'){ try{ unlockAudio(); const f0=fsQueue[0]; if(f0){ _listenSpokenThisCard=f0.id; listenSpeak(f0.id); } }catch(e){} } // v403：手势内解锁音频并立即播首题，iOS 不再拦截"自动出声"
 }
 /* 磨耳朵：屏幕常亮（Wake Lock）——防止手机黑屏导致播放/计时中断；iOS15.4+ / Android Chrome 支持 */
 let wakeLock=null;
@@ -4988,9 +4989,10 @@ function renderFs(){
     word.innerHTML='<span style="color:#B8C4D6;font-size:18px;font-family:-apple-system,sans-serif">🔊 听一听 · 辨词</span>';
     // v341：自动播改成「带回执」的 playSpk —— 出声了就顺手预热后面几题；
     // 没出声（长句缓冲慢/网络差/iOS 限制）就给一个「点一下播放」按钮，用户一点即手势内播放，必出声。
-    clearTimeout(_lspkTimer);
+    clearTimeout(_lspkTimer); // v403：听音抢答自动出声改由手势驱动(startPool 播首题 + listenAnswer 播下一题)，此异步定时器仅作兜底；iOS 会拦截"手势外的异步发音"→之前每题都得手点
     _lspkTimer=setTimeout(()=>{
       const cur=fsQueue[fsIdx]; if(!cur||cur.id!==it.id)return;
+      if(_listenSpokenThisCard===it.id) return; // 已在手势内播过，不重复
       listenSpeak(it.id);
     },350);
   }else{
@@ -5045,7 +5047,7 @@ function renderFs(){
       <button class="btn btn-purple" style="width:100%;margin-top:8px" onclick="copyTodayWords()">📋 复制今日词表（发我合成睡前音频）</button>`;
     if(earPlaying)startEarTimer();
   }else if(it.pool==='listen'){
-    bot.innerHTML=`<button class="btn btn-blue" style="width:100%" onclick="speakCurrent()">🔊 再听一次</button>
+    bot.innerHTML=`<button class="btn btn-blue" style="width:100%" onclick="listenReplay()">🔊 再听一次</button>
       <button class="btn btn-ghost" style="width:100%" onclick="revealListen()">👀 看答案</button>`;
   }else{
     let actionBtn='';
@@ -5146,7 +5148,7 @@ function listenAnswer(good){
     if(c) markDirty(it.id,['state','streak','poolDate','next','confirm','confirmAt','nights']); // 标脏，确保云端增量同步收到"进错题池"
   }
   save();
-  if(fsIdx<fsQueue.length-1){fsIdx++;renderFs();}
+  if(fsIdx<fsQueue.length-1){fsIdx++;renderFs(); try{ unlockAudio(); const nx=fsQueue[fsIdx]; if(nx){ _listenSpokenThisCard=nx.id; listenSpeak(nx.id); } }catch(e){} } // v403：答完手势内播下一题，iOS 必放行
   else{
     // 结束弹结算弹窗（统一模板，答不会的已进错题池）
     // v341：题数恒等于队列长度（30），不再用 listenGood+listenBad 累加值——
@@ -5165,6 +5167,7 @@ function listenAnswer(good){
 let quizQueue=[],quizIdx=0,quizGood=0,quizBad=0,quizWrongCnt=0,quizSlow=false,quizLock=false;
 let quizWrongIds=[];   // 本局答错的卡 id 列表，供结算弹窗展示
 let listenLock=false;  // v341：听音抢答防连点锁
+let _listenSpokenThisCard=null; // v403：记录本卡是否已在手势内播过，避免自动定时器重复出声
 let listenAnswers=new Map(); // v341：题序 idx -> 1对/0错，用于幂等计分（防 30 题结算成 31 题）
 let quizArchiveText=false;   // v342：本局是「复习归档」→ 前15题改用单词文字选项
 let quizTextMode=false;      // v342：当前这一题是否渲染为文字选项（由 renderQuizDispatch 按题序算）
@@ -7136,7 +7139,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v403';
+const APP_VER='v404';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

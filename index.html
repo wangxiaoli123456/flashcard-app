@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789860417000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1789913628000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -3688,9 +3688,9 @@ function renderPassagePage(){
 }
 const PASSAGE_DAILY_MAX=3; // v387b：短文每天最多复习 3 篇
 function passageNextDay(nights){ return [0,7,15,30,30,30][nights]||30; } // 掌握层级间隔：L1=7 L2=15 L3=30(之后保持30)
-function passageReadToday(){ const t=todayKey(); const s=store.stats&&store.stats.passage; if(s&&s.date===t)return s.count||0; return 0; }
+function passageReadToday(){ const t=todayKey(); let n=0; passageList().forEach(p=>{ if(p.lastRead===t) n++; }); return n; } // v403：由"每篇 lastRead 日期"推导今日已读篇数——lastRead 随短文同步云端，iPad/手机两端一致
 function passageRemainToday(){ return Math.max(0,PASSAGE_DAILY_MAX-passageReadToday()); }
-function passageBumpRead(){ const t=todayKey(); if(!store.stats)store.stats={}; if(!store.stats.passage)store.stats.passage={}; const s=store.stats.passage; if(s.date!==t){s.date=t;s.count=0;} s.count++; store.stats.passage=s; }
+function passageBumpRead(){ const t=todayKey(); const p=store.passages[currentPfId]; if(p){ p.lastRead=t; markPassageDirty(currentPfId,['lastRead']); } } // v403：把"今天读了"记到该篇 lastRead 字段(随短文同步云端)，而非本机全局计数器
 function passageDueIds(){
   const t=todayKey();
   // v396：上传后前7天每天必然出现(不锁不毕业)；7天后按到期(含已掌握复现)
@@ -3748,7 +3748,7 @@ function markPassage(good){
     p.streak=0; p.state='wrong'; p.next=addDays(t,1); showToast('📌 已记下，明天再来');
   }
   p.confirm=false;
-  markPassageDirty(currentPfId,['state','streak','next','nights','confirm','window7done']);
+  markPassageDirty(currentPfId,['state','streak','next','nights','confirm','window7done','lastRead']);
   passageBumpRead(); // v387b：记今天已读篇数，配合每日上限
   save();
   pfIdx++;
@@ -5133,7 +5133,7 @@ function listenAnswer(good){
   const t=todayKey();
   const log=store.log[t]||(store.log[t]={});
   log.lRev=(log.lRev||0)+1;
-  if(good){log.lGood=(log.lGood||0)+1;listenGood++;sfx('ok');setTimeout(speakCurrent,1000);} // v321：答对=提示音+播正确词确认；v397：TTS 延后1000ms，等整段"叮叮叮"(4音叠加约0.9s)放完再读词，避免 iOS 上 speechSynthesis 启动把尾音掐掉（这也是间歇性没声的来源之一）
+  if(good){log.lGood=(log.lGood||0)+1;listenGood++;sfx('ok');} // v403：答对只响"叮叮叮"；词在出题那一下已经读过一遍(见 renderFs 自动播)，答对后再读是重复，去掉避免"两个声音"
   else{
     listenBad++;listenWrongIds.push(it.id);sfx('bad'); // v321：答错=提示音（与听音选词同一套 sfx 短音，纯振荡器非TTS，不污染iOS会话）
     // 听音答不上来 → 进错题池，次日（Day2）起才能答，隔天连对3次才出池
@@ -7136,7 +7136,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v402';
+const APP_VER='v403';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1789946830000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790053561000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -1544,12 +1544,16 @@ function cleanStoredQ(){
 }
 /* 必须延迟到所有 const（EN_LEADING_GARBAGE_RE 等）定义之后执行，否则会触发 TDZ */
 setTimeout(cleanStoredQ,0);
-function currentBatch(){ // 每天自动一个日期文件夹，跨天自动新建
+function currentBatch(){ // v405：批次名=当天日期，纯本地标记，绝不依赖云端旧值
+  // 旧版把 batch/batchDate 当跨设备同步字段，restoreFromCloud/syncPull 会用云端旧批次名覆盖本地，
+  // 导致上传的卡被打到旧日期文件夹、批次名不变当天（iPad/手机两端也因此不一致）。
+  // 现改为：只要 batchDate 不是今天、或当前 batch 不是今天日期名，立即重置为当天，任何污染都能自愈。
   const t=todayKey();
-  if(!store.batch||store.batchDate!==t){
-    const d=new Date();
-    const label=`${d.getMonth()+1}月${d.getDate()}日`;
-    store.batch=label;store.batchDate=t;save();
+  const d=new Date();
+  const want=`${d.getMonth()+1}月${d.getDate()}日`;
+  if(store.batchDate!==t || store.batch!==want){
+    store.batch=want;store.batchDate=t;
+    try{save();}catch(e){}
   }
   return store.batch;
 }
@@ -6965,7 +6969,10 @@ function importBackup(file){
       });
       store.today=d.today||{date:todayKey(),ids:[]};
       store.log=d.log||{};
+      // v405：不再用云端 batch 覆盖本地（批次名=当天日期，纯本地标记）。恢复后立即 currentBatch() 重新对齐当天，
+      // 防止旧设备备份里的"9月20日"之类旧批次名污染本机，导致上传卡落错日期、批次名不变当天。
       store.batch=d.batch||'';store.batchDate=d.batchDate||todayKey();
+      try{ currentBatch(); }catch(e){}
       Promise.all([...putProms,...audProms,...normProms]).then(()=>{
         // v176：若备份是旧版（图片内联在 imgData），触发迁移写入 IndexedDB
         try{ setTimeout(migrateV7,0); }catch(e){}
@@ -7139,7 +7146,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v404';
+const APP_VER='v405';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7364,7 +7371,7 @@ async function syncPull(silent){
       }catch(e){}
     }
     const cloudDeleted=new Set();
-    (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='batch')store.batch=(r.data&&r.data!=='')?r.data:store.batch; else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } });
+    (meta||[]).forEach(r=>{ if(r.key==='today')store.today=mergeCloud(store.today,r.data,r.updated_at); else if(r.key==='log')store.log=mergeLog(store.log,r.data); else if(r.key==='deleted'){ (Array.isArray(r.data)?r.data:[]).forEach(id=>{ if(id)cloudDeleted.add(id); }); } }); /* v405：不再读取云端 batch——批次名=当天日期，纯本地标记，云端旧值会覆盖本地当天值 */
     // v367：云端墓碑权威合并——把云端已删 id 并入本地墓碑，保证各端删除最终一致（替换原“孤儿清理”）
     cloudDeleted.forEach(id=>{ if(!store.deletedIds.includes(id))store.deletedIds.push(id); });
     // v386：卡片合并抽成函数；短文复用同义合并但分流到独立集合 store.passages
@@ -7653,7 +7660,8 @@ async function doPush(){
     const metaRows=[];
     if(store.today && (store.today.ids||[]).length){ metaRows.push({user_id:uid,key:'today',data:store.today,updated_at:iso}); }
     metaRows.push({user_id:uid,key:'log',data:store.log,updated_at:iso});
-    metaRows.push({user_id:uid,key:'batch',data:store.batch,updated_at:iso});
+    // v405：批次名(=当天日期)不再推送云端——它是纯本地标记，跨设备同步会造成旧批次名互相覆盖，
+    // 导致上传卡落到旧日期文件夹、批次名不变当天（iPad/手机两端也因此不一致）。
     // v367：云端墓碑权威删除——把本地与云端 deleted 取并集推回云端，各端同步时依此清理，避免误删独有卡
     const delUnion=[...new Set([...(store.deletedIds||[]),...cloudDelMeta])];
     metaRows.push({user_id:uid,key:'deleted',data:delUnion,updated_at:iso});

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790150126000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790156521000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -19,17 +19,12 @@
 
 /* ===== v407 错题本 + 练习报告 ===== */
 function recordDrill(mode,total,wrongIds){
-  try{ if(typeof store.drillWrong!=='object'||!store.drillWrong)store.drillWrong={}; if(!Array.isArray(store.drillReports))store.drillReports=[]; }catch(e){}
   try{
     wrongIds=(wrongIds||[]).filter(Boolean);
     var d=new Date();
     var now=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    wrongIds.forEach(function(id){
-      var w=store.drillWrong[id]||{id:id,count:0,first:now,last:now,modes:{}};
-      w.count=(w.count||0)+1; w.last=now; w.modes[mode]=(w.modes[mode]||0)+1;
-      store.drillWrong[id]=w;
-    });
     var t=total||wrongIds.length;
+    if(!Array.isArray(store.drillReports))store.drillReports=[];
     store.drillReports.push({date:now,ts:Date.now(),mode:mode,total:t,wrong:wrongIds.length,wrongIds:wrongIds.slice(),rate:t?Math.round((t-wrongIds.length)/t*100):0});
     if(store.drillReports.length>300) store.drillReports=store.drillReports.slice(-300);
     if(typeof saveStore==='function')saveStore();
@@ -42,51 +37,10 @@ function _drillWord(id){
   var w=c.word||c.en||c.name||c.text||id; var z=c.zh||c.cn||c.mean||c.meaning||'';
   return {w:w,z:z};
 }
-function renderWrong(){
-  var ids=Object.keys(store.drillWrong||{});
-  ids.sort(function(a,b){return (store.drillWrong[b].count||0)-(store.drillWrong[a].count||0);});
-  var total=ids.length, times=0;
-  ids.forEach(function(id){times+=(store.drillWrong[id].count||0);});
-  var h='<div class="dr-wrap">';
-  h+='<div class="dr-hero" style="background:linear-gradient(135deg,#FF9E9E,#F26D6D)"><div class="dr-hero-t">📕 错题本</div><div class="dr-hero-s">这些词你答错过，多看几眼就记住了</div><div class="dr-hero-n"><b>'+total+'</b> 个词 · 累计错 <b>'+times+'</b> 次</div></div>';
-  if(!total){
-    h+='<div class="dr-empty">📭<div>错题本还是空的</div><div class="dr-empty-s">去「听音抢答」答错几题，就会自动出现在这里</div><button class="dr-empty-btn" onclick="startPool(\'listen\')">🎧 去听音抢答答错试试</button></div>';
-  }else{
-    h+='<div class="dr-grid">';
-    ids.forEach(function(id){
-      var o=_drillWord(id); var w=store.drillWrong[id];
-      var c=(store.cards&&store.cards[id])||(store.passages&&store.passages[id])||{};
-      h+='<div class="dr-item">';
-      h+='<img class="dr-img" alt="" data-imgid="'+id+'">';
-      h+='<div class="dr-info"><div class="dr-en">'+o.w+'</div><div class="dr-zh">'+o.z+'</div>';
-      h+='<div class="dr-meta"><span class="dr-badge">错 '+(w.count||0)+' 次</span><span class="dr-date">'+(w.last||'')+'</span></div></div>';
-      h+='<button class="dr-play" onclick="drillSpeakOne(\''+id+'\')">🔊</button>';
-      h+='</div>';
-    });
-    h+='</div>';
-    h+='<div class="dr-actions"><button class="dr-btn dr-back" onclick="switchTab(\'review\')">返回</button><button class="dr-btn dr-go" onclick="drillWrongPractice()">重练错题 ('+total+')</button></div>';
-  }
-  h+='</div>';
-  try{ document.getElementById('page-wrong').innerHTML=h; _drillImgFill(); }catch(e){ console.warn('rw',e); }
-}
-function _drillImgFill(){
-  try{
-    document.querySelectorAll('#page-wrong .dr-img[data-imgid]').forEach(function(im){
-      var id=im.getAttribute('data-imgid'); if(!id)return;
-      var c=(store.cards&&store.cards[id])||(store.passages&&store.passages[id])||{};
-      try{ cardImgUrl(c,function(u){ if(u)im.src=u; },200); }catch(e){}
-    });
-  }catch(e){}
-}
-function drillSpeakOne(id){
-  try{ var o=_drillWord(id); if(typeof speak==='function')speak(o.w); else if(typeof listenSpeak==='function')listenSpeak(o.w); }catch(e){}
-}
-function drillWrongPractice(){
-  var ids=Object.keys(store.drillWrong||{});
-  if(!ids.length){alert('还没有错题');return;}
-  try{ if(typeof startPool==='function'){ startPool('listen'); return; } }catch(e){}
-  alert('已选 '+ids.length+' 个错词');
-}
+
+
+
+
 function renderReport(){
   var rs=(store.drillReports||[]).slice().reverse();
   var cnt=rs.length, sumT=0, sumW=0;
@@ -881,9 +835,7 @@ window.addEventListener('unhandledrejection',function(e){});
         <div class="pool" style="background:linear-gradient(135deg,#FFF0F0,#FFE6E6);">
             <h3>📕 错题本 & 📋 练习报告</h3>
             <div class="sub">加练答错的词会自动进错题本；每次加练结束自动生成练习报告</div>
-            <div style="margin-top:10px">
-                <button style="display:block;width:100%;padding:12px;margin-bottom:9px;border:none;border-radius:12px;background:#fff;color:#C0392B;border:1.5px solid #C0392B;font-size:15px;font-weight:800;cursor:pointer" onclick="switchTab('wrong')">📕 打开错题本</button>
-                <button style="display:block;width:100%;padding:12px;border:none;border-radius:12px;background:#fff;color:#2D6CD4;border:1.5px solid #2D6CD4;font-size:15px;font-weight:800;cursor:pointer" onclick="switchTab('report')">📋 打开练习报告</button>
+            <div style="margin-top:10px">                <button style="display:block;width:100%;padding:12px;border:none;border-radius:12px;background:#fff;color:#2D6CD4;border:1.5px solid #2D6CD4;font-size:15px;font-weight:800;cursor:pointer" onclick="switchTab('report')">📋 打开练习报告</button>
             </div>
         </div>
 
@@ -956,9 +908,7 @@ window.addEventListener('unhandledrejection',function(e){});
           <button class="btn btn-green" onclick="markPassage(true)">👍 会</button>
         </div>
       </div>
-    </div>
-    <div class="page" id="page-wrong"></div>
-    <div class="page" id="page-report"></div>
+    </div>    <div class="page" id="page-report"></div>
     <div class="page" id="page-stat">
         <div class="stat-row">
             <div class="stat"><div class="num" style="color:#FF7043" id="spWrong">0</div><div class="lbl">错题池</div></div>
@@ -1624,7 +1574,7 @@ function load(){
     if(d.today||d.log){ const o=Object.assign({cards:{}},d); if(!o.passages)o.passages={}; if(!o.today)o.today={date:'',ids:[]}; if(!o.today.pids)o.today.pids=[]; return o; }
   }}catch(e){}
   return {
-    drillWrong:{}, drillReports:[],cards:{},passages:{},today:{date:'',ids:[],pids:[]},log:{},batch:''};
+    drillReports:[],cards:{},passages:{},today:{date:'',ids:[],pids:[]},log:{},batch:''};
 }
 let saveTimer=null;
 function save(){ if(saveTimer)return; saveTimer=setTimeout(()=>{saveTimer=null;saveNow();},250); }
@@ -1891,7 +1841,6 @@ function switchTab(p){
   if(p==='stat')renderStat();
   if(p==='today')renderToday();
   if(p==='setting')updateAudioEngineUI();
-  if(p==='wrong'){try{renderWrong();}catch(e){console.error('renderWrong',e);var _w=document.getElementById('page-wrong');if(_w)_w.innerHTML='<div style="padding:40px 16px;text-align:center;color:#C0392B">😵 错题本渲染出错：'+(e&&e.message||e)+'</div>';}}
   if(p==='report'){try{renderReport();}catch(e){console.error('renderReport',e);var _r=document.getElementById('page-report');if(_r)_r.innerHTML='<div style="padding:40px 16px;text-align:center;color:#C0392B">😵 报告渲染出错：'+(e&&e.message||e)+'</div>';}}
 }
 function updateAudioEngineUI(){
@@ -7294,7 +7243,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v415';
+const APP_VER='v416';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

@@ -16,6 +16,99 @@
     }
   }catch(e){}
 })();
+
+/* ===== v407 错题本 + 练习报告 ===== */
+function recordDrill(mode,total,wrongIds){
+  try{
+    wrongIds=(wrongIds||[]).filter(Boolean);
+    var d=new Date();
+    var now=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    wrongIds.forEach(function(id){
+      var w=store.drillWrong[id]||{id:id,count:0,first:now,last:now,modes:{}};
+      w.count=(w.count||0)+1; w.last=now; w.modes[mode]=(w.modes[mode]||0)+1;
+      store.drillWrong[id]=w;
+    });
+    var t=total||wrongIds.length;
+    store.drillReports.push({date:now,ts:Date.now(),mode:mode,total:t,wrong:wrongIds.length,wrongIds:wrongIds.slice(),rate:t?Math.round((t-wrongIds.length)/t*100):0});
+    if(store.drillReports.length>300) store.drillReports=store.drillReports.slice(-300);
+    if(typeof saveStore==='function')saveStore();
+    if(typeof schedulePush==='function')schedulePush();
+  }catch(e){console.warn('recordDrill',e);}
+}
+function _drillApp(){return document.getElementById('app')||document.querySelector('main')||document.body;}
+function _drillWord(id){
+  var c=(store.cards&&store.cards[id])||(store.passages&&store.passages[id])||{};
+  var w=c.word||c.en||c.name||c.text||id; var z=c.zh||c.cn||c.mean||c.meaning||'';
+  return {w:w,z:z};
+}
+function renderWrong(){
+  var ids=Object.keys(store.drillWrong||{});
+  var h='<div style="padding:16px 14px 90px"><h2 style="margin:0 0 12px">错题本 ('+ids.length+')</h2>';
+  if(!ids.length)h+='<p style="color:#888">还没有答错的词，去加练试试</p>';
+  ids.sort(function(a,b){return (store.drillWrong[b].count||0)-(store.drillWrong[a].count||0);});
+  ids.forEach(function(id){
+    var o=_drillWord(id); var w=store.drillWrong[id];
+    h+='<div style="border-bottom:1px solid #eee;padding:10px 0;display:flex;align-items:center;justify-content:space-between"><div><b style="font-size:17px">'+o.w+'</b> <span style="color:#555">'+o.z+'</span><div style="color:#999;font-size:12px;margin-top:2px">错 '+(w.count||0)+' 次 · 最近 '+(w.last||'')+'</div></div><button onclick="drillSpeakOne(\''+id+'\')" style="padding:6px 10px">🔊</button></div>';
+  });
+  h+='<div style="position:fixed;left:12px;right:12px;bottom:14px;display:flex;gap:8px"><button style="flex:1;padding:12px" onclick="gotoPage(\'home\')">返回</button><button style="flex:2;padding:12px" onclick="drillWrongPractice()">重练错题</button></div></div>';
+  _drillApp().innerHTML=h;
+}
+function drillSpeakOne(id){
+  try{ var o=_drillWord(id); if(typeof speak==='function')speak(o.w); else if(typeof listenSpeak==='function')listenSpeak(o.w); }catch(e){}
+}
+function drillWrongPractice(){
+  var ids=Object.keys(store.drillWrong||{});
+  if(!ids.length){alert('还没有错题');return;}
+  try{ if(typeof startPool==='function'){ startPool('listen'); return; } }catch(e){}
+  alert('已选 '+ids.length+' 个错词');
+}
+function renderReport(){
+  var rs=(store.drillReports||[]).slice().reverse();
+  var h='<div style="padding:16px 14px 90px"><h2 style="margin:0 0 12px">练习报告 ('+rs.length+')</h2>';
+  if(!rs.length)h+='<p style="color:#888">还没有练习记录</p>';
+  rs.forEach(function(r,i){
+    var names=(r.wrongIds||[]).map(function(id){return _drillWord(id).w;}).join('、');
+    h+='<div style="border-bottom:1px solid #eee;padding:10px 0"><b>'+r.date+'</b> <span style="color:#666">['+r.mode+']</span> 共 '+r.total+' 题 · 错 '+r.wrong+' · 正确率 <b>'+r.rate+'%</b>'+(names?'<div style="color:#999;font-size:12px;margin-top:3px">错词：'+names+'</div>':'')+'</div>';
+  });
+  h+='<div style="position:fixed;left:12px;right:12px;bottom:14px;display:flex;gap:8px"><button style="flex:1;padding:12px" onclick="gotoPage(\'home\')">返回</button><button style="flex:1;padding:12px" onclick="exportReportText()">导出文字</button><button style="flex:1;padding:12px" onclick="exportReportImg()">导出图片</button></div></div>';
+  _drillApp().innerHTML=h;
+}
+function _reportText(){
+  var rs=(store.drillReports||[]).slice().reverse();var t='练习报告\n';
+  if(!rs.length)t+='暂无记录\n';
+  rs.forEach(function(r){
+    var names=(r.wrongIds||[]).map(function(id){return _drillWord(id).w;}).join('、');
+    t+='['+r.date+'] '+r.mode+' 共'+r.total+'题 错'+r.wrong+' 正确率'+r.rate+'%'+(names?' 错词:'+names:'')+'\n';
+  });
+  return t;
+}
+function exportReportText(){
+  var t=_reportText();
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(function(){alert('报告已复制，可粘贴发送\n\n'+t);},function(){alert(t);});
+  }else alert(t);
+}
+function exportReportImg(){
+  try{
+    var rs=(store.drillReports||[]).slice().reverse();
+    var lines=rs.map(function(r){
+      var names=(r.wrongIds||[]).map(function(id){return _drillWord(id).w;}).join('、');
+      return r.date+' ['+r.mode+'] 共'+r.total+'题 错'+r.wrong+' '+r.rate+'%'+(names?'  错词:'+names:'');
+    });
+    var W=680, lh=30, top=92, H=top+Math.max(1,lines.length)*lh+30;
+    var c=document.createElement('canvas');c.width=W;c.height=H;
+    var x=c.getContext('2d');
+    x.fillStyle='#fff';x.fillRect(0,0,W,H);
+    x.fillStyle='#111';x.font='bold 26px sans-serif';x.fillText('练习报告',32,54);
+    x.font='16px sans-serif';
+    if(!lines.length){ x.fillStyle='#888'; x.fillText('暂无记录',32,top+10); }
+    lines.forEach(function(ln,i){ x.fillStyle='#222'; x.fillText(ln,32,top+i*lh); });
+    var url=c.toDataURL('image/png');
+    var a=document.createElement('a');a.href=url;a.download='practice_report.png';document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){ alert('图片已保存：practice_report.png（在浏览器下载里）'); },300);
+  }catch(e){ alert('导出图片失败:'+e.message); }
+}
+
 </script>
     <script>
 /* v333（重要修复）：删掉了这里一段「离线文件自动更新」的老逻辑。
@@ -1480,7 +1573,8 @@ function load(){
     if(d.cards){ if(!d.passages)d.passages={}; if(!d.today)d.today={date:'',ids:[]}; if(!d.today.pids)d.today.pids=[]; return d; }
     if(d.today||d.log){ const o=Object.assign({cards:{}},d); if(!o.passages)o.passages={}; if(!o.today)o.today={date:'',ids:[]}; if(!o.today.pids)o.today.pids=[]; return o; }
   }}catch(e){}
-  return {cards:{},passages:{},today:{date:'',ids:[],pids:[]},log:{},batch:''};
+  return {
+    drillWrong:{}, drillReports:[],cards:{},passages:{},today:{date:'',ids:[],pids:[]},log:{},batch:''};
 }
 let saveTimer=null;
 function save(){ if(saveTimer)return; saveTimer=setTimeout(()=>{saveTimer=null;saveNow();},250); }
@@ -5745,6 +5839,8 @@ function blankChoose(ok,el){
 
 /* ===== 统一结算弹窗（听音选词 / 听力抢答共用） ===== */
 function showQuizResult(o){
+  try{ recordDrill('drill', o.total, o.wrongIds); }catch(e){ console.warn('recDrill',e); }
+
   const score=o.total?Math.round(o.good/o.total*100):0;
   document.getElementById('qrTitle').textContent=o.title||'本次完成';
   document.getElementById('qrGood').textContent=`答对：${o.good}题`;
@@ -7146,7 +7242,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v406';
+const APP_VER='v407';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7896,5 +7992,6 @@ function showUpdateBanner(){ var b=document.getElementById('updateBanner'); if(b
 <style>
 .fs-ctx{display:none;margin-top:10px;padding:8px 14px;border-radius:16px;font-size:18px;font-weight:700;color:#5A6B84;text-align:center;}
 </style>
+<div id="drillNav" style="position:fixed;right:12px;bottom:12px;z-index:9999;display:flex;gap:6px"><button onclick="gotoPage('wrong')" style="padding:10px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.15)">错题本</button><button onclick="gotoPage('report')" style="padding:10px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.15)">报告</button></div>
 </body>
 </html>

@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790141291000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790142365000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -50,7 +50,7 @@ function renderWrong(){
   var h='<div class="dr-wrap">';
   h+='<div class="dr-hero" style="background:linear-gradient(135deg,#FF9E9E,#F26D6D)"><div class="dr-hero-t">📕 错题本</div><div class="dr-hero-s">这些词你答错过，多看几眼就记住了</div><div class="dr-hero-n"><b>'+total+'</b> 个词 · 累计错 <b>'+times+'</b> 次</div></div>';
   if(!total){
-    h+='<div class="dr-empty">📭<div>错题本还是空的</div><div class="dr-empty-s">去「听音抢答」答错几题，就会自动出现在这里</div></div>';
+    h+='<div class="dr-empty">📭<div>错题本还是空的</div><div class="dr-empty-s">去「听音抢答」答错几题，就会自动出现在这里</div><button class="dr-empty-btn" onclick="startPool(\'listen\')">🎧 去听音抢答答错试试</button></div>';
   }else{
     h+='<div class="dr-grid">';
     ids.forEach(function(id){
@@ -1891,8 +1891,8 @@ function switchTab(p){
   if(p==='stat')renderStat();
   if(p==='today')renderToday();
   if(p==='setting')updateAudioEngineUI();
-  if(p==='wrong')renderWrong();
-  if(p==='report')renderReport();
+  if(p==='wrong'){try{renderWrong();}catch(e){console.error('renderWrong',e);var _w=document.getElementById('page-wrong');if(_w)_w.innerHTML='<div style="padding:40px 16px;text-align:center;color:#C0392B">😵 错题本渲染出错：'+(e&&e.message||e)+'</div>';}}
+  if(p==='report'){try{renderReport();}catch(e){console.error('renderReport',e);var _r=document.getElementById('page-report');if(_r)_r.innerHTML='<div style="padding:40px 16px;text-align:center;color:#C0392B">😵 报告渲染出错：'+(e&&e.message||e)+'</div>';}}
 }
 function updateAudioEngineUI(){
   try{
@@ -7294,7 +7294,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v413';
+const APP_VER='v414';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

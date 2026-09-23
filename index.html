@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790053561000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790133087000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -7146,7 +7146,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v405';
+const APP_VER='v406';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7250,13 +7250,12 @@ async function syncNow(){
   if(cloudReadOnly()){ sbStatus='只读模式（未上传）'; try{updateCloudUI();}catch(e){} return; }
   if(!sb||!sbUser){ sbStatus='未登录'; try{updateCloudUI();}catch(e){} return; }
   sbStatus='同步中…（双轮推拉）'; try{updateCloudUI();}catch(e){}
+  // v407：砍掉原「双轮 {doPush+syncPull} + 额外 syncPull」——光拉取就跑 3 遍，是同步慢的主因。
+  // doPush 推完本地改动后，syncPull 一次即可闭合（增量拉取只拉「有变化的卡」、幂等），单轮耗时直接腰斩。
   try{
-    for(let _i=0;_i<2;_i++){
-      try{ await doPush(); }catch(e){ console.warn('syncNow push',e); }
-      try{ await syncPull(true); }catch(e){ console.warn('syncNow pull',e); }
-    }
+    try{ await doPush(); }catch(e){ console.warn('syncNow push',e); }
+    try{ await syncPull(false); }catch(e){ console.warn('syncNow pull',e); }
   }catch(e){ console.warn('syncNow',e); }
-  try{ await syncPull(false); }catch(e){}
   try{ ensureAllImgUrls(); }catch(e){}
   try{ if(sbUser) syncPullMedia(sbUser.id); }catch(e){}
   try{ await migrateImgData(); }catch(e){}
@@ -7317,32 +7316,30 @@ async function syncPull(silent){
     // 表现为"同步时好时坏/超时/图时有时无"。改增量后每轮仅传几十 KB(降约 200 倍)。
     // v394：拉元数据是同步第一步。单轮超时直接判失败体验差（尤其国内访问 supabase.co 偶发抖动），
     // 改为最多重试 2 次（退避后重试），网络偶尔抖动能自己缓过来；仍失败才抛错走下方分类提示。
-    let meta=null, me=null;
-    for(let _k=0;_k<2;_k++){
-      const _r=await withTimeout(
-        sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉元数据');
-      me=_r.error; meta=_r.data;
-      if(!me)break;
-      await new Promise(_r=>setTimeout(_r,800));
-    }
-    if(me)throw me;
-    // v382【省流量·根治】卡片索引走"增量拉取"：默认只拉上次水位之后变化的行（通常为空→几乎零流量），
-    // 每 10 轮 / 本地为空时做一次全量校准。原来每轮全量拉 data(约 20MB) 是打爆免费流量的主因。
+    // v407：元数据与卡片索引「无依赖」，原串行 2 轮 RTT → 改为 Promise.all 并行，省一轮往返。
     idxFullCounter++;
     const fullIdx = idxFullCounter>=10 || !Object.keys(store.cards).length || !Object.keys(store.passages).length || !lastPullIso;
-    let idx=[];
-    if(fullIdx){
-      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉卡片索引(全量)');
-      if(e1)throw e1; idx=ci||[]; idxFullCounter=0;
-    }else{
-      // v383：水位回退 2 秒做「重叠窗口」——原用严格 > 水位，凡是与上次同秒/同毫秒的变更会被永久漏掉
-      // （典型：两端交替操作、或同一秒内连续改，后一次就再也拉不到，表现为「有的更新收不到、要等下次全量」）。
-      // 重叠拉取只会重复拿到"已经有的卡"，由下面的 _syncAt 比较幂等跳过，零副作用。
-      let _wf=lastPullIso;
-      try{ const t=new Date(lastPullIso).getTime(); if(!isNaN(t)) _wf=new Date(t-2000).toISOString(); }catch(e){}
-      const {data:ci,error:e1}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',_wf), SYNC_TIMEOUT, '拉卡片索引(增量)');
-      if(e1)throw e1; idx=ci||[];
-    }
+    let _wf=lastPullIso;
+    try{ const t=new Date(lastPullIso).getTime(); if(!isNaN(t)) _wf=new Date(t-2000).toISOString(); }catch(e){}
+    const metaP=(async()=>{
+      let m=null,mer=null;
+      for(let _k=0;_k<2;_k++){
+        const _r=await withTimeout(sb.from('flash_meta').select('key,data,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '拉元数据');
+        mer=_r.error; m=_r.data; if(!mer)break; await new Promise(_r=>setTimeout(_r,800));
+      }
+      return {m,mer};
+    })();
+    const idxP=withTimeout(
+      fullIdx
+        ? sb.from('flash_cards').select('id,updated_at').eq('user_id',uid)
+        : sb.from('flash_cards').select('id,updated_at').eq('user_id',uid).gt('updated_at',_wf),
+      SYNC_TIMEOUT, fullIdx?'拉卡片索引(全量)':'拉卡片索引(增量)');
+    const [_mr, idxR]=await Promise.all([metaP, idxP]);
+    const me=_mr.mer; const meta=_mr.m;
+    if(me)throw me;
+    if(idxR.error)throw idxR.error;
+    let idx=idxR.data||[];
+    if(fullIdx) idxFullCounter=0;
     // 仅拉"本地没有 / 云端更新时间比本地记录(_syncAt=上次云端时间戳)新"的卡，分批 25 张
     const cards=[];
     let allFetched=true;
@@ -7353,14 +7350,24 @@ async function syncPull(silent){
         const rt=r.updated_at?new Date(r.updated_at).getTime():0;
         if(!ex || rt>(ex._syncAt||0)) need.push(r.id);
       });
-      for(let i=0;i<need.length;i+=25){
-        const chunk=need.slice(i,i+25);
-        const {data:cd,error:cde}=await withTimeout(
-          sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid).in('id',chunk),
-          SYNC_TIMEOUT, '拉卡片数据');
-        if(cde) throw cde;
-        (cd||[]).forEach(x=>cards.push(x));
-      }
+      // v407：分批「并发」拉取——原串行每批一个 await，246 张约 10 轮 RTT；并发 4 批约 3 轮，省约 70% 拉取耗时。
+      const CHUNK=25, CONC=4;
+      const chunks=[];
+      for(let i=0;i<need.length;i+=CHUNK) chunks.push(need.slice(i,i+CHUNK));
+      let _cur=0;
+      const worker=async()=>{
+        while(_cur<chunks.length){
+          const c=chunks[_cur++];
+          try{
+            const {data:cd,error:cde}=await withTimeout(
+              sb.from('flash_cards').select('id,data,updated_at').eq('user_id',uid).in('id',c),
+              SYNC_TIMEOUT, '拉卡片数据');
+            if(cde) throw cde;
+            (cd||[]).forEach(x=>cards.push(x));
+          }catch(e){ allFetched=false; console.warn('[增量拉卡] 部分未取到', e&&e.message||e); }
+        }
+      };
+      await Promise.all(Array.from({length:Math.min(CONC,Math.max(chunks.length,1))},()=>worker()));
     }catch(e){ allFetched=false; console.warn('[增量拉卡] 本轮部分未取到，下次心跳补', e&&e.message||e); }
     // v382：只有本批"全部取回"才推进水位；否则不推进，下轮增量仍会把漏掉的卡带回来重试（避免永久漏卡）
     if(allFetched){
@@ -7516,9 +7523,13 @@ async function doPush(){
     const uid=sbUser.id; const now=Date.now(); const iso=new Date(now).toISOString();
     // v382【省流量】推前只拉"轻量索引"(id,updated_at)判断该不该推；仅对"本地有改动/新建"的卡
     // 才补拉云端 data 做字段级合并。不再全量拉 data（原来每轮约 20MB，是流量爆表的主因）。
-    let cwMap={}, snapOk=false, cloudIdx={};
+    let cwMap={}, snapOk=false, cloudIdx={}, cloudDelMeta=[];
     try{
-      const {data:ci,error:cie}=await withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '推前拉索引');
+      // v407：推前「拉索引」与「拉墓碑」无依赖，原串行 2 轮 → Promise.all 并行，省一轮 RTT。
+      const idxP=withTimeout(sb.from('flash_cards').select('id,updated_at').eq('user_id',uid), SYNC_TIMEOUT, '推前拉索引');
+      const delP=withTimeout(sb.from('flash_meta').select('data').eq('user_id',uid).eq('key','deleted'), SYNC_TIMEOUT, '推前拉墓碑');
+      const [ciR, dmR]=await Promise.all([idxP, delP]);
+      const cie=ciR.error, ci=ciR.data;
       if(!cie){
         snapOk=true;
         (ci||[]).forEach(r=>{ cloudIdx[r.id]=r.updated_at?new Date(r.updated_at).getTime():0; });
@@ -7540,13 +7551,9 @@ async function doPush(){
           (cd||[]).forEach(r=>{ cwMap[r.id]=(r.data&&typeof r.data==='object')?r.data:{}; });
         }
       }
-    }catch(e){ /* 读取失败不阻断；snapOk=false 时下面只推"本地新建/有脏标记"的卡，绝不按全量重推 */ }
-    // v367：读取云端 deleted 墓碑，合并进本地删除集合，保证删除跨端传播
-    let cloudDelMeta=[];
-    try{
-      const {data:dm,error:dme}=await withTimeout(sb.from('flash_meta').select('data').eq('user_id',uid).eq('key','deleted'), SYNC_TIMEOUT, '推前拉墓碑');
+      const dme=dmR.error, dm=dmR.data;
       if(!dme && dm && dm.length && Array.isArray(dm[0].data)) cloudDelMeta=dm[0].data;
-    }catch(e){}
+    }catch(e){ /* 读取失败不阻断；snapOk=false 时下面只推"本地新建/有脏标记"的卡，绝不按全量重推 */ }
     // 计算需要推送的卡：与云端任一有效字段不同，或云端没有这张
     const rows=[];
     Object.keys(store.cards).forEach(id=>{
@@ -7608,26 +7615,29 @@ async function doPush(){
     let cardFail=0;
     if(rows.length){
       const BATCH_BYTES=900*1024, BATCH_MAX=12;
-      let buf=[], bufBytes=0, firstErr=null;
-      const flush=async()=>{
-        if(!buf.length)return;
-        const ids=buf.map(r=>r.id);
-        try{
-          const {error}=await withTimeout(sb.from('flash_cards').upsert(buf,{onConflict:'user_id,id'}), SYNC_TIMEOUT, '推卡片');
-          if(error) throw error;
-          ids.forEach(id=>{ const c=store.cards[id]; if(c){ c._syncAt=now; if(c._dirty)c._dirty={}; } const p=store.passages[id]; if(p){ p._syncAt=now; if(p._dirty)p._dirty={}; } });
-        }catch(e){
-          cardFail+=ids.length; firstErr=firstErr||e;
-          console.warn('[推卡分批失败] '+ids.length+' 张将在下一轮重试', e&&e.message||e);
-        }
-        buf=[]; bufBytes=0;
-      };
+      // v407：先按字节/张数全部分成批次，再并发 3 批 upsert——原串行逐批 await，多批累计 RTT 明显；并发省约 67% 推卡耗时。
+      const batches=[]; let buf=[], bufBytes=0;
       for(const r of rows){
         let sz=0; try{ sz=JSON.stringify(r.data).length; }catch(e){ sz=1024; }
-        if(buf.length && (bufBytes+sz>BATCH_BYTES || buf.length>=BATCH_MAX)) await flush();
+        if(buf.length && (bufBytes+sz>BATCH_BYTES || buf.length>=BATCH_MAX)){ batches.push(buf); buf=[]; bufBytes=0; }
         buf.push(r); bufBytes+=sz;
       }
-      await flush();
+      if(buf.length) batches.push(buf);
+      let _bi=0, firstErr=null;
+      const worker=async()=>{
+        while(_bi<batches.length){
+          const b=batches[_bi++]; const ids=b.map(r=>r.id);
+          try{
+            const {error}=await withTimeout(sb.from('flash_cards').upsert(b,{onConflict:'user_id,id'}), SYNC_TIMEOUT, '推卡片');
+            if(error) throw error;
+            ids.forEach(id=>{ const c=store.cards[id]; if(c){ c._syncAt=now; if(c._dirty)c._dirty={}; } const p=store.passages[id]; if(p){ p._syncAt=now; if(p._dirty)p._dirty={}; } });
+          }catch(e){
+            cardFail+=ids.length; firstErr=firstErr||e;
+            console.warn('[推卡分批失败] '+ids.length+' 张将在下一轮重试', e&&e.message||e);
+          }
+        }
+      };
+      await Promise.all(Array.from({length:Math.min(3,batches.length||1)},()=>worker()));
       if(cardFail && cardFail===rows.length){ if(firstErr) throw firstErr; else throw new Error('推卡片失败'); }
     }
     // 删除云端中本地已不存在的卡：删除操作必须同步到云端，否则下次 syncPull 又把已删卡拉回本地（删了又复活）
@@ -7760,6 +7770,13 @@ function startRealtime(){
   // 某轮全成功立刻回落 30s。改动始终留本地等下轮重试，云端恢复后自动追上，不丢数据。
   scheduleHeartbeat(30000);
 }
+function hasPendingPush(){
+  try{
+    for(const id in store.cards){ const c=store.cards[id]; if(c && (!c._syncAt || (c._dirty&&Object.keys(c._dirty).length))) return true; }
+    for(const id in store.passages){ const p=store.passages[id]; if(p && (!p._syncAt || (p._dirty&&Object.keys(p._dirty).length))) return true; }
+  }catch(e){}
+  return false;
+}
 function scheduleHeartbeat(delay){
   if(pullTimer){ clearTimeout(pullTimer); }
   pullTimer=setTimeout(async ()=>{
@@ -7771,7 +7788,10 @@ function scheduleHeartbeat(delay){
     // 即内嵌为 imgData 并推上云，使无 blob 的换设备(如 iPad)经同步拿到图，根治归档词不出图。
     if(!migrateOnceDone){ migrateOnceDone=true; try{ await migrateImgData(); }catch(e){} }
     hbFails = ok?0:(hbFails+1);
-    scheduleHeartbeat(ok?30000:Math.min(30000*Math.pow(2,hbFails),300000));
+    // v407：本地有改动待推时心跳收紧到 10s（改完更快上云、对端更快拉到），无改动维持 30s。
+    // 直接缩短「改完 → 对端可见」的最坏延迟（原固定 30s 推+30s 拉 ≈ 60s → 现 ≤10s 推 + 对端 ≤10/30s 拉）。
+    const nextDelay = ok ? (hasPendingPush()?10000:30000) : Math.min(30000*Math.pow(2,hbFails),300000);
+    scheduleHeartbeat(nextDelay);
   }, delay);
 }
 function stopRealtime(){

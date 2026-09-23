@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790174713000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790177842000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -7269,7 +7269,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v419';
+const APP_VER='v420';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7505,16 +7505,36 @@ async function syncPull(silent){
     // v367：云端墓碑权威合并——把云端已删 id 并入本地墓碑，保证各端删除最终一致（替换原“孤儿清理”）
     cloudDeleted.forEach(id=>{ if(!store.deletedIds.includes(id))store.deletedIds.push(id); });
     // v386：卡片合并抽成函数；短文复用同义合并但分流到独立集合 store.passages
+    // v420：学习进度排序（双设备同步冲突时"不让进度倒退"用）。数值越大=学得越深：
+    //   raw(待补全)=1 < new(新词期)=2 < wrong(错题池)=3 < new+confirm(今晚已判会)=4 < hist(老词/毕业)=5
+    function cardProgress(c){
+      if(!c||!c.state)return 0;
+      if(c.state==='hist')return 5;
+      if(c.state==='new')return c.confirm?4:2;
+      if(c.state==='wrong')return 3;
+      if(c.state==='raw')return 1;
+      return 0;
+    }
     function mergeIntoCards(r,rt){
       const ex=store.cards[r.id];
       const cloudHasTheme=r.data&&r.data.theme; const localHasTheme=ex&&ex.theme;
-      if(!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme)){
+      const _canOverwrite=!ex||rt>(ex._syncAt||0)||(cloudHasTheme&&!localHasTheme);
+      if(!_canOverwrite)return;
+      const localProg=ex?cardProgress(ex):-1;
+      const remoteProg=cardProgress(r.data);
+      if(remoteProg>=localProg){
+        // 远程进度不低于本地（或本地无此卡）→ 正常整体覆盖（含另一台合法推进的卡）
         const c=Object.assign({},r.data); c._syncAt=rt;
         if(ex && ex.imgKey && !c.imgKey) c.imgKey=ex.imgKey;
         if(ex && ex.imgUrl && !c.imgUrl) c.imgUrl=ex.imgUrl;
         if(ex && ex.imgData && !c.imgData) c.imgData=ex.imgData; // v372：保护本地内嵌图
         store.cards[r.id]=c;
         if(c.imgKey && c.imgData){ try{ dbPut(c.imgKey,c.imgData); }catch(e){} }
+      }else{
+        // v420：双设备脏写保护——远程进度低于本地（典型：另一台推来旧的 state='new'，
+        // 把本机已 confirm/wrong/hist 的卡整体覆盖回新词）。拒绝回退，以本地已学进度为准；
+        // 仅采纳远程水位避免反复拉取打架，并立即把本地进度推回云端使其最终一致。
+        if(ex){ ex._syncAt=rt; try{ markDirty(r.id,['state','confirm','nights','streak','level','next','poolDate']); schedulePush(); }catch(e){} }
       }
     }
     function mergeIntoPassages(r,rt){

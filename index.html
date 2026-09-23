@@ -663,6 +663,10 @@ window.addEventListener('unhandledrejection',function(e){});
 
     <!-- 页1：素材库 -->
     <div class="page active" id="page-lib">
+        <div style="display:flex;gap:10px;padding:10px 14px 0">
+            <button onclick="switchTab('wrong')" style="flex:1;display:flex;align-items:center;gap:8px;justify-content:center;padding:13px;border:none;border-radius:14px;background:#FFEAEA;color:#C0392B;font-size:15px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.06)">📕 错题本</button>
+            <button onclick="switchTab('report')" style="flex:1;display:flex;align-items:center;gap:8px;justify-content:center;padding:13px;border:none;border-radius:14px;background:#E7F1FF;color:#2D6CD4;font-size:15px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.06)">📋 练习报告</button>
+        </div>
         <div class="seg">
             <button id="libYq" class="on-youqi" onclick="setLibTab('youqi')">🔵 小小优趣闪卡组</button>
             <button id="libSq" onclick="setLibTab('shiqi')">🟠 适趣闪卡组</button>
@@ -7246,7 +7250,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v408';
+const APP_VER='v409';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
@@ -7997,6 +8001,6 @@ function showUpdateBanner(){ var b=document.getElementById('updateBanner'); if(b
 .fs-ctx{display:none;margin-top:10px;padding:8px 14px;border-radius:16px;font-size:18px;font-weight:700;color:#5A6B84;text-align:center;}
 </style>
 
-<div id="drillNav" style="position:fixed;right:12px;bottom:78px;z-index:9998;display:flex;gap:6px"><button onclick="switchTab('wrong')" style="padding:9px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);background:#fff;border:1px solid #ddd">📕 错题本</button><button onclick="switchTab('report')" style="padding:9px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);background:#fff;border:1px solid #ddd">📋 练习报告</button></div>
+
 </body>
 </html>

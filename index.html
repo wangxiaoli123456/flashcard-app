@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790172722000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790173785000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -2304,46 +2304,54 @@ function playYoudao(en,slow){
   const emb=audioForEn(en);
   if(emb){curAudio=playSrc(emb,slow?0.8:1);return;}
   const words=(en||'').trim().split(/\s+/).filter(Boolean);
+  const long=words.length>=3;                       // v418：长句阈值（3 词及以上）
   // ear 模式下任何失败都不调浏览器 TTS 兜底：speechSynthesis 会污染 iOS 音频会话，导致后续 HTMLAudio 全部静音
   const earn=(typeof fsPool!=='undefined')&&fsPool==='ear';
   // v344：本地已有这个词的发音 → 直接播，零网络零等待（长句「读得慢」的根治）
   try{
     const _bl=ghBlobGet(en);
     if(_bl){
-      /* 必须用全新元素播（走 playUrlChain），不能用共享元素的 playSrc：
-         共享元素往往还在播上一首，一挂 timeupdate 监听就会立刻误判「已出声」，
-         而新音频其实根本没开始 —— 这正是「缓存命中后反而不出声」的根因。
-         走 playUrlChain 还自带超时与回退：本地这份万一解码不了，立刻转网络，绝不静音。 */
-      const _bu=URL.createObjectURL(_bl);
-      const _ps=ghSrc(en);
-      const _fb=ghHas(en)
-        ? [ghAudioUrl(en,_ps), ghAudioUrl(en,(_ps==='baidu'?'youdao':'baidu')), directBaiduUrl(en), directYoudaoUrl(en)]
-        : [(words.length>=3?directBaiduUrl(en):directYoudaoUrl(en)),
-           (words.length>=3?directYoudaoUrl(en):directBaiduUrl(en))];
-      playUrlChain([_bu].concat(_fb),
-        {en:en,slow:slow,noTts:earn,waitMs:1200,   // 本地 blob 通常几十毫秒就响，1.2s 不响就转网络
-         onDone:function(ok){ setTimeout(function(){ try{URL.revokeObjectURL(_bu);}catch(e){} },3000); }});
-      return;
+      const cachedBaiduOnly = ghHas(en) && ghSrc(en)==='baidu';
+      // v418：长句且仅有百度版缓存 → 不用缓存里的百度(baidu 不够标准)，落地到下方有道优先链；其余照旧用缓存
+      if(!(long && cachedBaiduOnly)){
+        const _bu=URL.createObjectURL(_bl);
+        const _ps=ghSrc(en);
+        const _fb=ghHas(en)
+          ? [ghAudioUrl(en,_ps), ghAudioUrl(en,(_ps==='baidu'?'youdao':'baidu')), directBaiduUrl(en), directYoudaoUrl(en)]
+          : [directYoudaoUrl(en), directBaiduUrl(en)];
+        playUrlChain([_bu].concat(_fb),
+          {en:en,slow:slow,noTts:earn,waitMs:1200,   // 本地 blob 通常几十毫秒就响，1.2s 不响就转网络
+           onDone:function(ok){ setTimeout(function(){ try{URL.revokeObjectURL(_bu);}catch(e){} },3000); }});
+        return;
+      }
     }
   }catch(e){}
-  // v297：长句直接走百度整句真人音，避免有道对句子返500/空响应导致 iOS 音频元素卡住
   // 同源库里真有这个词 → 本地音频最快，且可 fetch 字节（磨耳朵合并音频用得上）
   if(ghHas(en)){
-    // v343：第一跳直接用清单里记录的真实源，命中率 100%，不再有 404 空转
+    // v418：长句优先有道（用户反馈有道真人音最标准）。库里有道版→用库里有道；只有百度版→先用有道直连TTS试，失败回退百度库
+    if(long){
+      const lead=(ghSrc(en)==='youdao')
+        ? [ghAudioUrl(en,'youdao'), ghAudioUrl(en,'baidu'), directYoudaoUrl(en), directBaiduUrl(en), sbAudioUrl(en,'youdao')]
+        : [directYoudaoUrl(en), ghAudioUrl(en,'baidu'), directBaiduUrl(en), ghAudioUrl(en,'youdao'), sbAudioUrl(en,'youdao')];
+      playUrlChain(lead, {en:en,slow:slow,noTts:earn,waitMs:Math.max(3000, words.length*500+1500),
+        onDone:function(ok){ if(ok)try{preloadSpk(en);}catch(e){} }});
+      return;
+    }
     const ps=ghSrc(en), osrc=(ps==='baidu'?'youdao':'baidu');
     playUrlChain([ghAudioUrl(en,ps), ghAudioUrl(en,osrc), directBaiduUrl(en), directYoudaoUrl(en)],
       {en:en,slow:slow,noTts:earn,waitMs:Math.max(2000, words.length*500+1200), // v341：长句给足缓冲时间
        onDone:function(ok){ if(ok)try{preloadSpk(en);}catch(e){} }});           // v344：播成功就顺手进缓存，下次零等待
     return;
   }
-  // v343：阈值 5 词 → 3 词。实测有道对长句返回 39KB 且【无缓存头】，百度只要 7.4KB 且可缓存 1 小时；
-  // 原先 3~4 词的短语（正是适趣/小小优趣的长句主力）走有道优先，每次都要重下 39KB —— 这才是「读得慢」的主因。
-  if(words.length>=3){ playBaidu(en,slow,earn); return; }
-  /* v325：同源库没有的新词 —— 这是「点播放很慢才出音」的根因所在。
-     旧链路第一跳打 Supabase 云端库（新词注定 400）、第二跳同源库（注定 404），
-     两次白等之后才轮到真正能出声的直连源；且每跳的等待上限是 2.6s，最坏要等 5 秒以上。
-     新链路：直连有道（音质最好）→ 直连百度 → 同源库（防清单没同步）→ 云端库（最后兜底）→ 原生TTS，
-     每跳等待上限收到 1.4s。 */
+  // v418：长句改走「有道优先」（用户反馈有道最标准），百度/云端/有道同源库作自动兜底——
+  // 有道能出声就用有道；只有有道失败(个别句子返500/空)才回退百度，确保长句仍必出声、不回归"读不出来"。
+  if(long){
+    playUrlChain([directYoudaoUrl(en), directBaiduUrl(en), ghAudioUrl(en,'youdao'), sbAudioUrl(en,'youdao'), sbAudioUrl(en,'baidu')],
+      {en:en,slow:slow,noTts:earn,waitMs:Math.max(3000, words.length*500+1500),
+       onDone:function(ok){ if(ok)try{preloadSpk(en);}catch(e){} }});
+    return;
+  }
+  /* v325：同源库没有的新词 —— 直连有道（音质最好）→ 直连百度 → 同源库 → 云端库 → 原生TTS */
   const dYou=directYoudaoUrl(en), dBai=directBaiduUrl(en);
   const firstPair = sbMissed(en) ? [dBai, dYou] : [dYou, dBai];
   playUrlChain(firstPair.concat([ghAudioUrl(en,'youdao'), ghAudioUrl(en,'baidu'), sbAudioUrl(en,'youdao'), sbAudioUrl(en,'baidu')]),
@@ -2446,7 +2454,7 @@ function preloadSpk(en){
       return;
     }
     // 库外的词拿不到字节，只能用 Audio 元素预热 HTTP 缓存（听天由命，但聊胜于无）
-    const u=(wl>=3?directBaiduUrl(w):directYoudaoUrl(w));
+    const u=directYoudaoUrl(w); // v418：长句改有道优先，预热主源(有道)；百度作兜底冷启可接受
     const a=new Audio(); a.preload='auto'; a.src=u; a.load&&a.load(); _preloadEls.push(a);
     if(_preloadEls.length>40)_preloadEls.splice(0,15);
   }catch(e){}
@@ -7269,7 +7277,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v417';
+const APP_VER='v418';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

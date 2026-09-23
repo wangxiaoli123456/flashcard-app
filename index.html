@@ -6,7 +6,7 @@
    若不一致立即 replace 到带 _r=时间戳 的 URL，根治 iOS Web Clip / 微信静态页死缓存（不再依赖用户点刷新） */
 (function(){
   try{
-    var REL='1790140943000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
+    var REL='1790141291000'; try{window.__APP_REL__=REL;}catch(e){} // v304b：REL 原本关在 IIFE 内外部读不到，版本自检拿到空值会直接失效
     var k='__APP_REL__';
     var prev=localStorage.getItem(k);
     if(prev!==REL){
@@ -44,15 +44,39 @@ function _drillWord(id){
 }
 function renderWrong(){
   var ids=Object.keys(store.drillWrong||{});
-  var h='<div style="padding:16px 14px 90px"><h2 style="margin:0 0 12px">错题本 ('+ids.length+')</h2>';
-  if(!ids.length)h+='<div style="padding:48px 16px;text-align:center;color:#999;line-height:1.7">📭 错题本还是空的<br>去「听音抢答」故意答错几题<br>就会自动出现在这里</div>';
   ids.sort(function(a,b){return (store.drillWrong[b].count||0)-(store.drillWrong[a].count||0);});
-  ids.forEach(function(id){
-    var o=_drillWord(id); var w=store.drillWrong[id];
-    h+='<div style="border-bottom:1px solid #eee;padding:10px 0;display:flex;align-items:center;justify-content:space-between"><div><b style="font-size:17px">'+o.w+'</b> <span style="color:#555">'+o.z+'</span><div style="color:#999;font-size:12px;margin-top:2px">错 '+(w.count||0)+' 次 · 最近 '+(w.last||'')+'</div></div><button onclick="drillSpeakOne(\''+id+'\')" style="padding:6px 10px">🔊</button></div>';
-  });
-  h+='<div style="position:fixed;left:12px;right:12px;bottom:14px;display:flex;gap:8px"><button style="flex:1;padding:12px" onclick="switchTab(\'lib\')">返回</button><button style="flex:2;padding:12px" onclick="drillWrongPractice()">重练错题</button></div></div>';
-  try{document.getElementById('page-wrong').innerHTML=h;}catch(e){console.warn('rw',e);}
+  var total=ids.length, times=0;
+  ids.forEach(function(id){times+=(store.drillWrong[id].count||0);});
+  var h='<div class="dr-wrap">';
+  h+='<div class="dr-hero" style="background:linear-gradient(135deg,#FF9E9E,#F26D6D)"><div class="dr-hero-t">📕 错题本</div><div class="dr-hero-s">这些词你答错过，多看几眼就记住了</div><div class="dr-hero-n"><b>'+total+'</b> 个词 · 累计错 <b>'+times+'</b> 次</div></div>';
+  if(!total){
+    h+='<div class="dr-empty">📭<div>错题本还是空的</div><div class="dr-empty-s">去「听音抢答」答错几题，就会自动出现在这里</div></div>';
+  }else{
+    h+='<div class="dr-grid">';
+    ids.forEach(function(id){
+      var o=_drillWord(id); var w=store.drillWrong[id];
+      var c=(store.cards&&store.cards[id])||(store.passages&&store.passages[id])||{};
+      h+='<div class="dr-item">';
+      h+='<img class="dr-img" alt="" data-imgid="'+id+'">';
+      h+='<div class="dr-info"><div class="dr-en">'+o.w+'</div><div class="dr-zh">'+o.z+'</div>';
+      h+='<div class="dr-meta"><span class="dr-badge">错 '+(w.count||0)+' 次</span><span class="dr-date">'+(w.last||'')+'</span></div></div>';
+      h+='<button class="dr-play" onclick="drillSpeakOne(\''+id+'\')">🔊</button>';
+      h+='</div>';
+    });
+    h+='</div>';
+    h+='<div class="dr-actions"><button class="dr-btn dr-back" onclick="switchTab(\'review\')">返回</button><button class="dr-btn dr-go" onclick="drillWrongPractice()">重练错题 ('+total+')</button></div>';
+  }
+  h+='</div>';
+  try{ document.getElementById('page-wrong').innerHTML=h; _drillImgFill(); }catch(e){ console.warn('rw',e); }
+}
+function _drillImgFill(){
+  try{
+    document.querySelectorAll('#page-wrong .dr-img[data-imgid]').forEach(function(im){
+      var id=im.getAttribute('data-imgid'); if(!id)return;
+      var c=(store.cards&&store.cards[id])||(store.passages&&store.passages[id])||{};
+      try{ cardImgUrl(c,function(u){ if(u)im.src=u; },200); }catch(e){}
+    });
+  }catch(e){}
 }
 function drillSpeakOne(id){
   try{ var o=_drillWord(id); if(typeof speak==='function')speak(o.w); else if(typeof listenSpeak==='function')listenSpeak(o.w); }catch(e){}
@@ -65,14 +89,28 @@ function drillWrongPractice(){
 }
 function renderReport(){
   var rs=(store.drillReports||[]).slice().reverse();
-  var h='<div style="padding:16px 14px 90px"><h2 style="margin:0 0 12px">练习报告 ('+rs.length+')</h2>';
-  if(!rs.length)h+='<p style="color:#888">还没有练习记录</p>';
-  rs.forEach(function(r,i){
-    var names=(r.wrongIds||[]).map(function(id){return _drillWord(id).w;}).join('、');
-    h+='<div style="border-bottom:1px solid #eee;padding:10px 0"><b>'+r.date+'</b> <span style="color:#666">['+r.mode+']</span> 共 '+r.total+' 题 · 错 '+r.wrong+' · 正确率 <b>'+r.rate+'%</b>'+(names?'<div style="color:#999;font-size:12px;margin-top:3px">错词：'+names+'</div>':'')+'</div>';
-  });
-  h+='<div style="position:fixed;left:12px;right:12px;bottom:14px;display:flex;gap:8px"><button style="flex:1;padding:12px" onclick="switchTab(\'lib\')">返回</button><button style="flex:1;padding:12px" onclick="exportReportText()">导出文字</button><button style="flex:1;padding:12px" onclick="exportReportImg()">导出图片</button></div></div>';
-  try{document.getElementById('page-report').innerHTML=h;}catch(e){console.warn('rp',e);}
+  var cnt=rs.length, sumT=0, sumW=0;
+  rs.forEach(function(r){sumT+=(r.total||0);sumW+=(r.wrong||0);});
+  var avgT=sumT?Math.round((sumT-sumW)/sumT*100):0;
+  var h='<div class="dr-wrap">';
+  h+='<div class="dr-hero" style="background:linear-gradient(135deg,#7FB2FF,#4E88E8)"><div class="dr-hero-t">📋 练习报告</div><div class="dr-hero-s">每次加练结束自动记录一条</div><div class="dr-hero-n">共 <b>'+cnt+'</b> 次 · 平均正确率 <b>'+avgT+'%</b></div></div>';
+  if(!cnt){
+    h+='<div class="dr-empty">📭<div>还没有练习记录</div><div class="dr-empty-s">完成一次加练后就会自动生成</div></div>';
+  }else{
+    rs.forEach(function(r){
+      var rate=r.rate||0;
+      var col=rate>=80?'#22B573':(rate>=60?'#FF9B3D':'#F26D6D');
+      h+='<div class="dr-card">';
+      h+='<div class="dr-card-top"><div class="dr-card-date">'+(r.date||'')+'</div><span class="dr-tag">'+(r.mode==='listen'?'听音抢答':(r.mode==='quiz'?'听音选词':'加练'))+'</span></div>';
+      h+='<div class="dr-card-mid"><div class="dr-num"><b>'+r.total+'</b><span>总题</span></div><div class="dr-num" style="color:#F26D6D"><b>'+r.wrong+'</b><span>错题</span></div><div class="dr-num" style="color:'+col+'"><b>'+rate+'%</b><span>正确率</span></div></div>';
+      var names=(r.wrongIds||[]).map(function(id){return _drillWord(id).w;}).filter(Boolean);
+      if(names.length)h+='<div class="dr-card-wrong">错词：'+names.join('、')+'</div>';
+      h+='</div>';
+    });
+    h+='<div class="dr-actions"><button class="dr-btn dr-back" onclick="switchTab(\'review\')">返回</button><button class="dr-btn" style="background:#fff;color:#4E88E8;border:1.5px solid #4E88E8" onclick="exportReportText()">导出文字</button><button class="dr-btn dr-go" onclick="exportReportImg()">导出图片</button></div>';
+  }
+  h+='</div>';
+  try{ document.getElementById('page-report').innerHTML=h; }catch(e){ console.warn('rp',e); }
 }
 function _reportText(){
   var rs=(store.drillReports||[]).slice().reverse();var t='练习报告\n';
@@ -7256,7 +7294,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v412';
+const APP_VER='v413';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置

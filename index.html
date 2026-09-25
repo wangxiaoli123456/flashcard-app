@@ -1612,8 +1612,11 @@ function markPassageDirty(id,fields){ const p=store.passages[id]; if(!p)return; 
 window.addEventListener('beforeunload',()=>{
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   saveNow();
-  // 兜底：同步把 cards 写回 localStorage，防止 IndexedDB 异步写未完成
-  try{const m=JSON.parse(localStorage.getItem(KEY)||'{}');m.cards=store.cards;m.passages=store.passages||{};localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}
+  // v421：兜底只落 IndexedDB（容量数百 MB），不再把整份卡片（含图片 base64）写回 localStorage。
+  // 旧实现会把 877+ 张卡序列化进 localStorage，MB 级 JSON.stringify 制造内存尖峰且撑爆本地存储，
+  // 导致 iOS 主屏独立 App 把该站点的 localStorage 整块禁用（一键复习常弹"存储被禁用"）。
+  // saveNow() 已负责把 cards 写入 IndexedDB，此处仅补一道异步落盘，不碰 localStorage。
+  try{ idbPutCards(store.cards); }catch(e){}
 });
 // v383：设备一回到前台/获得焦点立即追平一次。iOS Safari 会把后台标签页的心跳节流/挂起，
 // 导致「在 iPad 改了、拿起手机看却没更新」——直到标签页重新活跃才拉。此监听在用户真正打开
@@ -7269,7 +7272,7 @@ const SB_CFG_KEY='sb_cfg_v1';
 const SB_EMBED_URL='https://bununhxkphvlvgvhanpk.supabase.co';
 const SB_EMBED_KEY='sb_publishable_l2HHWkiboFYihQ_taLY9ZA_O3Xxh0aH';
 const SB_EMBED_CREDS={email:'315276700@qq.com',password:String.fromCharCode(87,120,108,53,55,55,53,50,48)};
-const APP_VER='v420';
+const APP_VER='v421';
 try{window.APP_VER=APP_VER;var _vb=document.getElementById('verBadge');if(_vb)_vb.textContent=APP_VER;}catch(e){}
 let sb=null, sbUser=null, sbStatus='未配置', pushTimer=null, pullTimer=null, rtChannel=null, pulling=false, migrateOnceDone=false, lastSyncOkAt=0, hbFails=0;
 // v382：增量同步水位（上次已拉到的云端 updated_at）与"全量校准"轮计数；水位持久化，刷新不重置
